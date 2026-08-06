@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { receiveWhatsappChat } from '../controllers/webhook.controller';
+import { verifyWebhook, receiveWhatsappChat } from '../controllers/webhook.controller';
 
 const router = Router();
 
 /**
- * Health check endpoint - Penting untuk memantau status server secara otomatis (misalnya oleh load balancer atau health monitoring tool).
+ * Health check endpoint - Penting untuk memantau status server secara otomatis
  */
 router.get('/health', (req, res) => {
   res.status(200).json({
@@ -15,7 +15,12 @@ router.get('/health', (req, res) => {
 });
 
 /**
- * Endpoint Webhook WhatsApp - Menerima payload chat dan memprosesnya
+ * Endpoint Webhook WhatsApp (GET: Verifikasi dari Meta Developer Dashboard)
+ */
+router.get('/webhook', verifyWebhook);
+
+/**
+ * Endpoint Webhook WhatsApp (POST: Menerima pesan/event dari Meta Cloud API atau testing manual)
  */
 router.post('/webhook', receiveWhatsappChat);
 

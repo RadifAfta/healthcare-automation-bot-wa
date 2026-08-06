@@ -4,7 +4,7 @@
   "description": "AI-Powered Workflow Automator untuk UMKM - Backend boilerplate dengan Node.js, Express, TypeScript, dan Zod",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "nodemon src/server.ts",
+    "dev": "nodemon --watch src -e ts src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js"
   },

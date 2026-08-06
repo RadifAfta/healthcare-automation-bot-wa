@@ -10,6 +10,12 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   REDIS_HOST: z.string().default('127.0.0.1'),
   REDIS_PORT: z.coerce.number().default(6379),
+  WA_PROVIDER: z.enum(['cloud_api', 'web']).default('cloud_api'),
+  META_WA_PHONE_NUMBER_ID: z.string().default(''),
+  META_WA_ACCESS_TOKEN: z.string().default(''),
+  META_WA_VERIFY_TOKEN: z.string().default('my_secure_verify_token_123'),
+  META_APP_SECRET: z.string().default(''),
+  META_GRAPH_API_VERSION: z.string().default('v20.0'),
   GROQ_API_KEY: z.string({
     required_error: 'GROQ_API_KEY wajib diisi di .env!',
   }).min(1, 'GROQ_API_KEY tidak boleh kosong!'),
