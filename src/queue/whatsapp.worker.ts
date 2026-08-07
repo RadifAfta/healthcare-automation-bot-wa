@@ -1,10 +1,10 @@
 import { Worker, Job } from 'bullmq';
 import redisConnection from '../config/redis';
 import { WHATSAPP_QUEUE_NAME } from './whatsapp.queue';
-import { classifyIntent, extractOrderFromChat, answerInquiry, ChatMessage } from '../services/ai.service';
-import { appendOrderToSheet, getCatalogFromSheet } from '../services/sheets.service';
+import { classifyIntent, extractBookingFromChat, answerInquiry } from '../services/ai.service';
+import { appendBookingToSheet, getCatalogFromSheet } from '../services/sheets.service';
 import { WhatsAppProviderFactory } from '../services/whatsapp-provider.service';
-import { sessionService, OrderSession } from '../services/session.service';
+import { sessionService, BookingSession } from '../services/session.service';
 
 // Definisikan bentuk interface data yang ditangani oleh Job
 interface ChatJobData {
@@ -12,15 +12,24 @@ interface ChatJobData {
   message: string;
 }
 
-// Inisialisasi WhatsApp Provider dari Factory (Provider Agnostic)
+// Inisialisasi WhatsApp Provider dari Factory
 const whatsappProvider = WhatsAppProviderFactory.getProvider();
+
+// Helper untuk menyusun teks Kartu Reservasi Klinik
+const renderBookingRecap = (booking: any, cleanSenderPhone: string): string => {
+  const treatmentDetailsStr = booking.layanan_dipilih
+    .map((p: any) => `- *${p.nama_layanan}*: Rp${p.estimasi_harga.toLocaleString('id-ID')}`)
+    .join('\n');
+
+  return `🤖 *📋 KARTU RESERVASI KLINIK* \n\nBerikut rincian jadwal janji temu perawatan Kakak:\n\n- *Nama Pasien:* ${booking.nama_pasien || 'Pasien'}\n- *Nomor HP:* ${booking.nomor_hp || cleanSenderPhone}\n- *Tanggal Booking:* ${booking.tanggal_booking || '-'}\n- *Jam Slot:* ${booking.jam_booking || '-'}\n- *Dokter Pilihan:* ${booking.dokter_pilihan || '-'}\n\n*Treatment Dipilih:*\n${treatmentDetailsStr}\n\n*💰 Total Estimasi Biaya:* *Rp${booking.total_estimasi.toLocaleString('id-ID')}*\n\nApakah jadwal reservasi di atas sudah sesuai? (Ketik **Ya** untuk konfirmasi, atau ketik jika ada perubahan/tambahan). 😊`;
+};
 
 // Inisialisasi Worker BullMQ (Consumer)
 export const whatsappWorker = new Worker<ChatJobData>(
   WHATSAPP_QUEUE_NAME,
   async (job: Job<ChatJobData>) => {
     const { sender, message } = job.data;
-    const cleanSenderPhone = sender.split('@')[0]; // Ekstrak nomor HP pengirim
+    const cleanSenderPhone = sender.split('@')[0];
 
     console.log(`\n👷 [Worker] Mulai memproses job #${job.id} dari pengirim: ${sender}`);
     
@@ -38,75 +47,75 @@ export const whatsappWorker = new Worker<ChatJobData>(
     // 1. Simpan pesan pengguna ke riwayat chat
     session.history.push({ role: 'user', content: message });
 
-    // Batasi panjang riwayat chat (maksimal 6 pesan terakhir) agar hemat token & fokus
+    // Batasi panjang riwayat chat (maksimal 6 pesan terakhir)
     if (session.history.length > 6) {
       session.history.shift();
     }
 
     console.log(`👷 [Worker] Status Sesi ${sender}: ${session.step}, Riwayat Chat: ${session.history.length} pesan`);
 
+    // Jika dalam mode HANDOFF_ADMIN, bot diam dan biarkan Admin Manusia membalas
+    if (session.step === 'HANDOFF_ADMIN') {
+      console.log(`ℹ️ [Worker] Mengabaikan pesan dari ${sender} karena sesi sedang ditangani Admin Manusia.`);
+      return;
+    }
+
     // 2. Klasifikasi niat dengan riwayat chat
     const intent = await classifyIntent(message, session.history);
     console.log(`👷 [Worker] Niat terdeteksi: ${intent.toUpperCase()}`);
 
-    // Ambil data katalog produk aktif dari Google Sheets
+    // Ambil data katalog layanan klinik aktif dari Google Sheets
     const catalog = await getCatalogFromSheet();
     const catalogContext = catalog
-      .map((item) => `- ${item.nama} (Harga: Rp${item.harga.toLocaleString('id-ID')})`)
+      .map((item) => `- ${item.nama} (Tarif: Rp${item.harga.toLocaleString('id-ID')}, Durasi: ${item.durasi || '45m'}, Dokter: ${item.dokter || 'Tim Dokter'})`)
       .join('\n');
 
     let replyText = '';
 
     // ------------------------------------------------------------------------
-    // HANDLING GLOBAL INTENT: CANCEL (BISA DIJALANKAN KAPAN SAJA)
+    // HANDLING GLOBAL INTENT: CANCEL (BATALKAN RESERVASI)
     // ------------------------------------------------------------------------
     if (intent === 'CANCEL') {
       console.log(`👷 [Worker] Menerima permintaan pembatalan dari ${sender}`);
       session.step = 'IDLE';
-      session.order = undefined;
-      replyText = `🤖 Baik Kak, pesanan Anda saat ini telah dibatalkan. Jika ingin memesan lagi di lain waktu, cukup ketik kembali menu pesanan Kakak ya. Terima kasih! 😊`;
+      session.booking = undefined;
+      replyText = `🤖 Baik Kak, reservasi janji temu Anda saat ini telah dibatalkan. Jika ingin melakukan reservasi perawatan lagi di lain waktu, cukup ketik kembali layanan yang diinginkan ya Kak. Terima kasih! 😊`;
       await whatsappProvider.sendMessage(sender, replyText);
       session.history.push({ role: 'assistant', content: replyText });
       await sessionService.setSession(sender, session);
-      console.log(`👷 [Worker] Pesanan dibatalkan & sesi direset ke IDLE untuk ${sender}\n`);
+      console.log(`👷 [Worker] Reservasi dibatalkan & sesi direset ke IDLE untuk ${sender}\n`);
       return;
     }
 
     // ------------------------------------------------------------------------
-    // STATE MACHINE FLOW
+    // STATE MACHINE FLOW (KLINIK KECANTIKAN & GIGI)
     // ------------------------------------------------------------------------
 
-    // A. STATE: AWAITING_NAME
+    // A. STATE: AWAITING_NAME (MENUNGGU NAMA PASIEN)
     if (session.step === 'AWAITING_NAME') {
-      // Jika pengguna mengajukan pertanyaan di tengah jalan alih-alih memberikan nama
       if (intent === 'INQUIRY') {
         replyText = await answerInquiry(message, catalogContext, session.history);
-        replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Nama Lengkap Pembeli** terlebih dahulu ya Kak agar pesanan bisa kami catat. 😊`;
+        replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Nama Lengkap Pasien** terlebih dahulu ya Kak agar reservasi bisa kami catat. 😊`;
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
         await sessionService.setSession(sender, session);
         return;
       }
 
-      // Simpan input sebagai nama
       const inputName = message.trim();
-      if (session.order) {
-        session.order.nama_pembeli = inputName;
+      if (session.booking) {
+        session.booking.nama_pasien = inputName;
         
-        // Cek kelengkapan alamat
-        const isAddressMissing = !session.order.alamat_pengiriman || 
-                                 session.order.alamat_pengiriman.trim() === '-' || 
-                                 session.order.alamat_pengiriman.trim() === '';
-                                 
-        if (isAddressMissing) {
-          session.step = 'AWAITING_ADDRESS';
-          replyText = `🤖 Terima kasih Kak *${inputName}*! Selanjutnya, mohon infokan **Alamat Pengiriman** Kakak ya agar kami bisa hitung ongkirnya. 😊`;
+        const isDateTimeMissing = !session.booking.tanggal_booking || 
+                                  session.booking.tanggal_booking.trim() === '-' || 
+                                  session.booking.tanggal_booking.trim() === '';
+                                  
+        if (isDateTimeMissing) {
+          session.step = 'AWAITING_DATE_TIME';
+          replyText = `🤖 Terima kasih Kak *${inputName}*! Selanjutnya, mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** yang Kakak inginkan untuk treatment ya. 😊`;
         } else {
           session.step = 'AWAITING_CONFIRMATION';
-          const detailPesananStr = session.order.pesanan
-            .map((p) => `- *${p.nama_produk}* (x${p.jumlah}): Rp${p.subtotal.toLocaleString('id-ID')}`)
-            .join('\n');
-          replyText = `🤖 *📋 REKAP PESANAN* \n\nBerikut rincian pesanan Kakak:\n\n- *Nama:* ${session.order.nama_pembeli}\n- *Nomor HP:* ${session.order.nomor_hp || cleanSenderPhone}\n- *Alamat:* ${session.order.alamat_pengiriman}\n\n*Item Pesanan:*\n${detailPesananStr}\n\n*💰 Total Tagihan:* *Rp${session.order.total_harga.toLocaleString('id-ID')}*\n\nApakah pesanan di atas sudah benar? (Ketik **Ya** untuk konfirmasi, atau ketik jika ada perubahan/tambahan). 😊`;
+          replyText = renderBookingRecap(session.booking, cleanSenderPhone);
         }
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
@@ -115,28 +124,25 @@ export const whatsappWorker = new Worker<ChatJobData>(
       return;
     }
 
-    // B. STATE: AWAITING_ADDRESS
-    if (session.step === 'AWAITING_ADDRESS') {
-      // Jika pengguna malah bertanya di tengah jalan alih-alih memberikan alamat
+    // B. STATE: AWAITING_DATE_TIME (MENUNGGU TANGGAL & JAM KEDATANGAN)
+    if (session.step === 'AWAITING_DATE_TIME') {
       if (intent === 'INQUIRY') {
         replyText = await answerInquiry(message, catalogContext, session.history);
-        replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Alamat Pengiriman** Kakak terlebih dahulu ya agar kami bisa hitung ongkirnya. 😊`;
+        replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak terlebih dahulu ya agar bisa kami ketersediaan tempatnya. 😊`;
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
         await sessionService.setSession(sender, session);
         return;
       }
 
-      const inputAddress = message.trim();
-      if (session.order) {
-        session.order.alamat_pengiriman = inputAddress;
-        session.order.nomor_hp = session.order.nomor_hp || cleanSenderPhone;
+      const inputDateTime = message.trim();
+      if (session.booking) {
+        session.booking.tanggal_booking = inputDateTime;
+        session.booking.jam_booking = session.booking.jam_booking || 'Sesuai Jadwal';
+        session.booking.nomor_hp = session.booking.nomor_hp || cleanSenderPhone;
         
         session.step = 'AWAITING_CONFIRMATION';
-        const detailPesananStr = session.order.pesanan
-          .map((p) => `- *${p.nama_produk}* (x${p.jumlah}): Rp${p.subtotal.toLocaleString('id-ID')}`)
-          .join('\n');
-        replyText = `🤖 *📋 REKAP PESANAN* \n\nBerikut rincian pesanan Kakak:\n\n- *Nama:* ${session.order.nama_pembeli}\n- *Nomor HP:* ${session.order.nomor_hp}\n- *Alamat:* ${session.order.alamat_pengiriman}\n\n*Item Pesanan:*\n${detailPesananStr}\n\n*💰 Total Tagihan:* *Rp${session.order.total_harga.toLocaleString('id-ID')}*\n\nApakah pesanan di atas sudah benar? (Ketik **Ya** untuk konfirmasi, atau ketik jika ada perubahan/tambahan). 😊`;
+        replyText = renderBookingRecap(session.booking, cleanSenderPhone);
         
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
@@ -145,43 +151,35 @@ export const whatsappWorker = new Worker<ChatJobData>(
       return;
     }
 
-    // C. STATE: AWAITING_CONFIRMATION
+    // C. STATE: AWAITING_CONFIRMATION (MENUNGGU KONFIRMASI FINAL)
     if (session.step === 'AWAITING_CONFIRMATION') {
-      // Jika user mengonfirmasi
       if (intent === 'CONFIRM') {
-        if (session.order) {
-          console.log(`📊 [Sheets Service] Menulis data ke Google Sheets...`);
-          await appendOrderToSheet(session.order);
+        if (session.booking) {
+          console.log(`📊 [Sheets Service] Menulis data reservasi klinik ke Google Sheets...`);
+          await appendBookingToSheet(session.booking);
           
-          replyText = `🤖 *Nota Berhasil Direkap!* \n\nHalo Kak *${session.order.nama_pembeli}*, pesanan Anda telah resmi terdaftar di sistem toko kami. Admin kami akan segera menghubungi nomor Kakak untuk proses pembayaran dan pengiriman. Terima kasih telah berbelanja! 🙏😊`;
+          replyText = `🤖 *Reservasi Berhasil Terdaftar!* \n\nHalo Kak *${session.booking.nama_pasien}*, janji temu perawatan Anda telah resmi terdaftar di sistem klinik kami. Admin resepsionis kami akan mengonfirmasi ulang jadwal Kakak. Terima kasih dan sampai jumpa di klinik! 🙏😊`;
           
           await whatsappProvider.sendMessage(sender, replyText);
           session.history.push({ role: 'assistant', content: replyText });
           
-          // Bersihkan pesanan dan kembalikan state ke IDLE
           session.step = 'IDLE';
-          session.order = undefined;
+          session.booking = undefined;
           await sessionService.setSession(sender, session);
-          console.log(`👷 [Worker] Transaksi selesai & ditulis ke Google Sheets untuk ${sender}`);
+          console.log(`👷 [Worker] Reservasi selesai & ditulis ke Google Sheets untuk ${sender}`);
         }
         return;
       }
       
-      // Jika user bermaksud menambah atau mengubah item pesanan
-      if (intent === 'ORDER') {
-        console.log(`👷 [Worker] Mendeteksi perubahan/tambahan pesanan dalam state AWAITING_CONFIRMATION`);
-        const updatedOrder = await extractOrderFromChat(message, catalogContext, session.history, session.order);
+      if (intent === 'BOOKING') {
+        console.log(`👷 [Worker] Mendeteksi perubahan/tambahan layanan dalam AWAITING_CONFIRMATION`);
+        const updatedBooking = await extractBookingFromChat(message, catalogContext, session.history, session.booking);
         
-        if (updatedOrder && updatedOrder.pesanan && updatedOrder.pesanan.length > 0) {
-          session.order = updatedOrder;
-          
-          // Tampilkan rekap terbaru
-          const detailPesananStr = session.order.pesanan
-            .map((p) => `- *${p.nama_produk}* (x${p.jumlah}): Rp${p.subtotal.toLocaleString('id-ID')}`)
-            .join('\n');
-          replyText = `🤖 *📋 REKAP PESANAN (DIPERBARUI)* \n\nBerikut rincian pesanan terbaru Kakak:\n\n- *Nama:* ${session.order.nama_pembeli || 'Pelanggan'}\n- *Nomor HP:* ${session.order.nomor_hp || cleanSenderPhone}\n- *Alamat:* ${session.order.alamat_pengiriman || '-'}\n\n*Item Pesanan:*\n${detailPesananStr}\n\n*💰 Total Tagihan:* *Rp${session.order.total_harga.toLocaleString('id-ID')}*\n\nApakah pesanan di atas sudah benar? (Ketik **Ya** untuk konfirmasi, atau ketik jika ada perubahan/tambahan). 😊`;
+        if (updatedBooking && updatedBooking.layanan_dipilih && updatedBooking.layanan_dipilih.length > 0) {
+          session.booking = updatedBooking;
+          replyText = renderBookingRecap(session.booking, cleanSenderPhone);
         } else {
-          replyText = `🤖 Maaf Kak, perubahan pesanan tidak valid atau produk tidak cocok dengan menu kami. Silakan ketik kembali menu tambahan yang diinginkan sesuai katalog aktif.`;
+          replyText = `🤖 Maaf Kak, perubahan reservasi belum sesuai dengan katalog perawatan kami. Silakan ketik kembali nama treatment yang diinginkan ya Kak.`;
         }
         
         await whatsappProvider.sendMessage(sender, replyText);
@@ -190,10 +188,9 @@ export const whatsappWorker = new Worker<ChatJobData>(
         return;
       }
 
-      // Jika user menanyakan hal lain (Inquiry)
       if (intent === 'INQUIRY') {
         replyText = await answerInquiry(message, catalogContext, session.history);
-        replyText = `${replyText}\n\n*Catatan:* Konfirmasi pesanan Kakak di atas masih menggantung. Apakah rincian pesanan sudah benar? (Ketik **Ya** jika benar, atau ketik tambahan Anda). 😊`;
+        replyText = `${replyText}\n\n*Catatan:* Konfirmasi jadwal reservasi Kakak di atas masih menggantung. Apakah rincian janji temu sudah sesuai? (Ketik **Ya** jika sesuai). 😊`;
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
         await sessionService.setSession(sender, session);
@@ -201,46 +198,41 @@ export const whatsappWorker = new Worker<ChatJobData>(
       }
     }
 
-    // D. STATE: IDLE (TIDAK ADA PESANAN AKTIF)
+    // D. STATE: IDLE (TIDAK ADA RESERVASI AKTIF)
     if (session.step === 'IDLE') {
-      if (intent === 'ORDER') {
-        console.log(`👷 [Worker] Memproses pesanan baru...`);
-        const extractedOrder = await extractOrderFromChat(message, catalogContext, session.history);
+      if (intent === 'BOOKING') {
+        console.log(`👷 [Worker] Memproses pendaftaran reservasi klinik baru...`);
+        const extractedBooking = await extractBookingFromChat(message, catalogContext, session.history);
         
-        if (!extractedOrder.pesanan || extractedOrder.pesanan.length === 0) {
-          console.log(`⚠️ [Worker] Pembeli berniat memesan tetapi tidak ada item yang cocok dengan katalog.`);
-          replyText = `🤖 Halo Kak! Kami mendeteksi Kakak ingin melakukan pemesanan, tetapi produk yang dipesan belum tersedia atau tidak cocok dengan menu aktif kami.\n\n*Berikut Menu yang Tersedia:* \n${catalogContext}\n\nSilakan ketik ulang pesanan Kakak sesuai menu di atas ya! Terima kasih! 😊`;
+        if (!extractedBooking.layanan_dipilih || extractedBooking.layanan_dipilih.length === 0) {
+          console.log(`⚠️ [Worker] Pasien berniat booking tetapi tidak ada tindakan yang cocok dengan katalog.`);
+          replyText = `🤖 Halo Kak! Kami mendeteksi Kakak ingin melakukan reservasi perawatan, tetapi jenis tindakan yang disebutkan belum tersedia di katalog kami.\n\n*Berikut Layanan yang Tersedia:* \n${catalogContext}\n\nSilakan ketik ulang nama perawatan yang Kakak inginkan ya! Terima kasih! 😊`;
           await whatsappProvider.sendMessage(sender, replyText);
           session.history.push({ role: 'assistant', content: replyText });
           await sessionService.setSession(sender, session);
           return;
         }
 
-        // Auto-fill nomor HP
-        extractedOrder.nomor_hp = extractedOrder.nomor_hp || cleanSenderPhone;
-        session.order = extractedOrder;
+        extractedBooking.nomor_hp = extractedBooking.nomor_hp || cleanSenderPhone;
+        session.booking = extractedBooking;
 
-        // Tentukan step berikutnya berdasarkan kelengkapan parameter
-        const isNameMissing = !extractedOrder.nama_pembeli || 
-                              extractedOrder.nama_pembeli.trim() === '-' || 
-                              extractedOrder.nama_pembeli.trim() === '';
+        const isNameMissing = !extractedBooking.nama_pasien || 
+                              extractedBooking.nama_pasien.trim() === '-' || 
+                              extractedBooking.nama_pasien.trim() === '';
                               
-        const isAddressMissing = !extractedOrder.alamat_pengiriman || 
-                                 extractedOrder.alamat_pengiriman.trim() === '-' || 
-                                 extractedOrder.alamat_pengiriman.trim() === '';
+        const isDateTimeMissing = !extractedBooking.tanggal_booking || 
+                                  extractedBooking.tanggal_booking.trim() === '-' || 
+                                  extractedBooking.tanggal_booking.trim() === '';
 
         if (isNameMissing) {
           session.step = 'AWAITING_NAME';
-          replyText = `🤖 Terima kasih pesanan Kakak! Mohon infokan **Nama Lengkap Pembeli** Kakak ya agar pesanan bisa kami catat dengan benar. 😊`;
-        } else if (isAddressMissing) {
-          session.step = 'AWAITING_ADDRESS';
-          replyText = `🤖 Terima kasih Kak *${extractedOrder.nama_pembeli}*! Mohon infokan **Alamat Pengiriman** Kakak ya agar pesanan bisa kami rekap dan hitung ongkirnya. 😊`;
+          replyText = `🤖 Terima kasih! Mohon infokan **Nama Lengkap Pasien** Kakak ya agar reservasi klinik bisa kami catat. 😊`;
+        } else if (isDateTimeMissing) {
+          session.step = 'AWAITING_DATE_TIME';
+          replyText = `🤖 Terima kasih Kak *${extractedBooking.nama_pasien}*! Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak ya agar kami persiapkan tempatnya. 😊`;
         } else {
           session.step = 'AWAITING_CONFIRMATION';
-          const detailPesananStr = extractedOrder.pesanan
-            .map((p) => `- *${p.nama_produk}* (x${p.jumlah}): Rp${p.subtotal.toLocaleString('id-ID')}`)
-            .join('\n');
-          replyText = `🤖 *📋 REKAP PESANAN* \n\nBerikut rincian pesanan Kakak:\n\n- *Nama:* ${extractedOrder.nama_pembeli}\n- *Nomor HP:* ${extractedOrder.nomor_hp}\n- *Alamat:* ${extractedOrder.alamat_pengiriman}\n\n*Item Pesanan:*\n${detailPesananStr}\n\n*💰 Total Tagihan:* *Rp${extractedOrder.total_harga.toLocaleString('id-ID')}*\n\nApakah pesanan di atas sudah benar? (Ketik **Ya** untuk konfirmasi, atau ketik jika ada perubahan/tambahan). 😊`;
+          replyText = renderBookingRecap(extractedBooking, cleanSenderPhone);
         }
         
         await whatsappProvider.sendMessage(sender, replyText);
@@ -249,7 +241,6 @@ export const whatsappWorker = new Worker<ChatJobData>(
         return;
       }
 
-      // Handling INQUIRY
       if (intent === 'INQUIRY') {
         replyText = await answerInquiry(message, catalogContext, session.history);
         replyText = `🤖 ${replyText}`;
@@ -259,17 +250,16 @@ export const whatsappWorker = new Worker<ChatJobData>(
         return;
       }
 
-      // Handling COMPLAINT
       if (intent === 'COMPLAINT') {
-        replyText = `🤖 Halo Kak! Terima kasih atas masukannya. Keluhan Kakak telah kami catat di sistem. Admin toko kami akan segera membalas chat Kakak secara manual secepat mungkin ya. Mohon maaf atas ketidaknyamanannya! 🙏`;
+        replyText = `🤖 Halo Kak! Terima kasih atas informasinya. Keluhan Kakak telah kami catat. Admin resepsionis klinik kami akan segera menghubungi Kakak secara manual ya. Mohon maaf atas ketidaknyamanannya! 🙏`;
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
         await sessionService.setSession(sender, session);
         return;
       }
 
-      // Default (OTHER / Greetings)
-      replyText = `🤖 Halo Kak! Selamat datang di Toko Kami. 😊\n\nAda yang bisa kami bantu? Kakak bisa menanyakan daftar menu/harga, atau bisa langsung mengetikkan detail pesanan Kakak untuk direkap otomatis.\n\n*Contoh Format Pesanan:*\n_\"Pesen sate kambing 2 porsi dan es teh manis 1 ya kak\"_`;
+      // Default Greeting
+      replyText = `🤖 Halo Kak! Selamat datang di Klinik Kecantikan & Gigi Kami. 😊\n\nAda yang bisa kami bantu? Kakak bisa menanyakan info perawatan/tarif dokter, atau bisa langsung mengetikkan jadwal booking perawatan Kakak.\n\n*Contoh Format Reservasi:*\n_\"Mau booking scaling gigi dan facial glow untuk besok jam 2 siang kak\"_`;
       await whatsappProvider.sendMessage(sender, replyText);
       session.history.push({ role: 'assistant', content: replyText });
       await sessionService.setSession(sender, session);
@@ -278,21 +268,17 @@ export const whatsappWorker = new Worker<ChatJobData>(
   },
   {
     connection: redisConnection,
-    concurrency: 1, // Memproses 1 job dalam satu waktu untuk mencegah limit rate API
+    concurrency: 1,
   }
 );
 
-// Event Listener untuk memonitor job yang berhasil selesai
 whatsappWorker.on('completed', (job) => {
   console.log(`✅ [Worker] Job #${job?.id} SELESAI diproses secara sukses.`);
 });
 
-// Event Listener untuk mendeteksi job yang gagal (untuk retry/alert)
 whatsappWorker.on('failed', (job, err) => {
   console.error(`🚨 [Worker] Job #${job?.id} GAGAL diproses! Alasan:`, err.message);
 });
 
-console.log(`⚙️ [Worker] Worker '${WHATSAPP_QUEUE_NAME}' aktif & mendengarkan antrean...`);
+console.log(`⚙️ [Worker] Worker '${WHATSAPP_QUEUE_NAME}' (Klinik Booking) aktif...`);
 export default whatsappWorker;
-
-

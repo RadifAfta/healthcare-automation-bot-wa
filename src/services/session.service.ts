@@ -1,21 +1,21 @@
 import Redis from 'ioredis';
 import { env } from '../config/env';
-import { ExtractedOrder, ChatMessage } from './ai.service';
+import { ExtractedBooking, ChatMessage } from './ai.service';
 
-// Interface untuk data sesi status pemesanan dan riwayat obrolan
-export interface OrderSession {
-  step: 'IDLE' | 'AWAITING_NAME' | 'AWAITING_ADDRESS' | 'AWAITING_CONFIRMATION';
-  order?: ExtractedOrder;
+// Interface untuk data sesi reservasi klinik dan riwayat obrolan
+export interface BookingSession {
+  step: 'IDLE' | 'AWAITING_NAME' | 'AWAITING_DATE_TIME' | 'AWAITING_CONFIRMATION' | 'HANDOFF_ADMIN';
+  booking?: ExtractedBooking;
   history: ChatMessage[];
 }
 
 /**
- * Service untuk mengelola sesi percakapan multi-turn UMKM.
+ * Service untuk mengelola sesi percakapan multi-turn Klinik Kecantikan & Gigi.
  * Menggunakan Redis sebagai media penyimpanan utama dengan mekanisme fallback otomatis ke In-Memory Map.
  */
 class SessionService {
   private redis: Redis | null = null;
-  private memoryStore = new Map<string, { data: OrderSession; expiresAt: number }>();
+  private memoryStore = new Map<string, { data: BookingSession; expiresAt: number }>();
   private isRedisConnected = false;
 
   constructor() {
@@ -48,16 +48,16 @@ class SessionService {
   }
 
   /**
-   * Mengambil sesi aktif pembeli berdasarkan nomor HP JID
+   * Mengambil sesi aktif pasien berdasarkan nomor HP JID
    */
-  public async getSession(phone: string): Promise<OrderSession | null> {
+  public async getSession(phone: string): Promise<BookingSession | null> {
     const key = this.getSessionKey(phone);
 
     if (this.isRedisConnected && this.redis) {
       try {
         const data = await this.redis.get(key);
         if (data) {
-          return JSON.parse(data) as OrderSession;
+          return JSON.parse(data) as BookingSession;
         }
         return null;
       } catch (error: any) {
@@ -79,9 +79,9 @@ class SessionService {
   }
 
   /**
-   * Menyimpan sesi aktif pembeli ke database dengan durasi kedaluwarsa (TTL) default 15 menit (900 detik)
+   * Menyimpan sesi aktif pasien ke database dengan durasi kedaluwarsa (TTL) default 15 menit (900 detik)
    */
-  public async setSession(phone: string, sessionData: OrderSession, ttlSeconds = 900): Promise<void> {
+  public async setSession(phone: string, sessionData: BookingSession, ttlSeconds = 900): Promise<void> {
     const key = this.getSessionKey(phone);
 
     if (this.isRedisConnected && this.redis) {
@@ -101,7 +101,7 @@ class SessionService {
   }
 
   /**
-   * Menghapus sesi pembeli (setelah transaksi selesai atau dibatalkan)
+   * Menghapus sesi pasien (setelah reservasi terkonfirmasi atau dibatalkan)
    */
   public async deleteSession(phone: string): Promise<void> {
     const key = this.getSessionKey(phone);

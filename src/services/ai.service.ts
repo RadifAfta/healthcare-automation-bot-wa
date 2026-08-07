@@ -11,8 +11,8 @@ export interface ChatMessage {
   content: string;
 }
 
-// Tipe Niat (Intent) pesan WhatsApp masuk
-export type IntentType = 'ORDER' | 'INQUIRY' | 'COMPLAINT' | 'CONFIRM' | 'CANCEL' | 'OTHER';
+// Tipe Niat (Intent) pesan WhatsApp masuk untuk Klinik Kecantikan & Gigi
+export type IntentType = 'BOOKING' | 'INQUIRY' | 'COMPLAINT' | 'CONFIRM' | 'CANCEL' | 'OTHER';
 
 // Interface untuk respons deteksi intent
 export interface IntentResult {
@@ -20,38 +20,38 @@ export interface IntentResult {
   explanation: string;
 }
 
-// Interface untuk bentuk data hasil ekstraksi AI yang sudah tercocokkan dengan katalog
-export interface ExtractedOrder {
-  nama_pembeli: string;
+// Interface untuk bentuk data hasil ekstraksi reservasi klinik yang sudah tervalidasi katalog
+export interface ExtractedBooking {
+  nama_pasien: string;
   nomor_hp: string;
-  pesanan: Array<{
-    nama_produk: string;
-    jumlah: number;
-    harga_satuan: number;
-    subtotal: number;
+  layanan_dipilih: Array<{
+    nama_layanan: string;
+    estimasi_harga: number;
   }>;
-  total_harga: number;
-  alamat_pengiriman: string;
+  tanggal_booking: string;
+  jam_booking: string;
+  dokter_pilihan: string;
+  total_estimasi: number;
 }
 
 /**
- * Service untuk mendeteksi niat (intent) dari chat pelanggan WhatsApp.
+ * Service untuk mendeteksi niat (intent) dari chat pasien Klinik Kecantikan & Gigi.
  */
 export const classifyIntent = async (message: string, history: ChatMessage[] = []): Promise<IntentType> => {
   try {
-    const systemPrompt = `Kamu adalah AI Router cerdas yang bertugas mengklasifikasi kategori pesan dari pelanggan toko online UMKM.
+    const systemPrompt = `Kamu adalah AI Router cerdas yang bertugas mengklasifikasi kategori pesan dari pasien Klinik Kecantikan & Klinik Gigi.
 Tentukan kategori pesan dari daftar berikut:
-- CONFIRM: Jika pesan berisi konfirmasi setuju, mengiyakan rekap pesanan, atau konfirmasi "Ya" / "Oke" / "Benar" terhadap rekap belanjaan sebelumnya. Contoh: "ya", "oke", "benar", "betul kak", "ya pesanan saya sudah benar", "ok".
-- CANCEL: Jika pesan berisi keinginan membatalkan pesanan atau menghapus seluruh sesi pesanan. Contoh: "batalin aja", "batal", "cancel pesanan saya", "gak jadi beli deh".
-- ORDER: Jika pesan berisi niat untuk membeli produk baru, menambah menu, mengubah jumlah pesanan, memesan makanan/barang, atau menanyakan total tagihan belanjaan mereka. Contoh: "mau beli sate kambing 2", "pesen nasi goreng satu", "tambah sate 1 lagi kak", "ganti jadi bakso aja".
-- INQUIRY: Jika pesan berisi pertanyaan umum tentang harga barang, daftar menu/katalog, jam buka toko, ketersediaan stok produk, atau lokasi fisik toko. Contoh: "sate porsinya berapa ya?", "buka jam berapa kak?", "menu sate kambing ready?", "ada rasa apa aja?".
-- COMPLAINT: Jika pesan berisi komplain, protes barang rusak/kurang, keluhan keterlambatan pengiriman, atau permintaan refund. Contoh: "kok pesanan saya belum sampai ya?", "makanan kemarin rasanya kurang enak, tolong perbaiki".
+- CONFIRM: Jika pesan berisi konfirmasi setuju, mengiyakan rekap kartu reservasi, atau konfirmasi "Ya" / "Oke" / "Benar" / "Setuju" terhadap jadwal booking klinik sebelumnya. Contoh: "ya", "oke", "benar", "betul kak", "ya reservasi saya sudah benar", "ok pas".
+- CANCEL: Jika pesan berisi keinginan membatalkan reservasi janji temu atau menghapus booking klinik. Contoh: "batalin aja", "batal", "cancel booking saya", "gak jadi periksa deh".
+- BOOKING: Jika pesan berisi niat untuk mendaftar reservasi janji temu, mengambil slot treatment/perawatan gigi atau kecantikan, menentukan tanggal/jam kedatangan, atau menambah tindakan perawatan. Contoh: "mau booking scaling gigi besok", "pesen tempat facial glow jam 2 siang", "daftar periksa behel hari sabtu", "booking laser acne sama dr. siska".
+- INQUIRY: Jika pesan berisi pertanyaan umum tentang biaya/tarif treatment, katalog perawatan gigi/kecantikan, jam buka klinik, ketersediaan dokter/beautician, lokasi fisik klinik, atau syarat persiapan sebelum treatment. Contoh: "scaling gigi berapa ya kak?", "buka jam berapa?", "drg. amanda ada hari apa aja?", "alamat kliniknya di mana?".
+- COMPLAINT: Jika pesan berisi komplain, keluhan kelambatan pelayanan, ketidakpuasan hasil perawatan, atau keluhan komplikasi pasca tindakan. Contoh: "gigi saya sakit banget setelah ditambal kemarin", "pelayanannya lambat banget tadi".
 - OTHER: Jika pesan hanya berisi salam pembuka (halo, p, pagi, siang), basa-basi, ucapan terima kasih, atau teks acak yang tidak jelas tujuannya.
 
 Kamu WAJIB mengembalikan respon HANYA berupa objek JSON mentah yang valid, tanpa teks basa-basi, tanpa tanda backticks (\`\`\`json), dan tanpa penjelasan apa pun.
 Struktur JSON yang wajib kamu kembalikan harus memiliki key berikut:
 {
-  "intent": "ORDER" | "INQUIRY" | "COMPLAINT" | "CONFIRM" | "CANCEL" | "OTHER",
+  "intent": "BOOKING" | "INQUIRY" | "COMPLAINT" | "CONFIRM" | "CANCEL" | "OTHER",
   "explanation": "alasan singkat klasifikasi dalam bahasa indonesia"
 }`;
 
@@ -76,7 +76,7 @@ Struktur JSON yang wajib kamu kembalikan harus memiliki key berikut:
       response_format: {
         type: 'json_object',
       },
-      temperature: 0.0, // Suhu 0 agar klasifikasi sangat deterministik dan konsisten
+      temperature: 0.0,
     });
 
     const rawJsonString = response.choices[0]?.message?.content || '{}';
@@ -84,31 +84,32 @@ Struktur JSON yang wajib kamu kembalikan harus memiliki key berikut:
     return parsedData.intent || 'OTHER';
   } catch (error) {
     console.error('❌ [AI Service] Gagal mengklasifikasikan intent chat:', error);
-    return 'OTHER'; // Default fallback
+    return 'OTHER';
   }
 };
 
 /**
- * Service untuk menjawab pertanyaan umum pelanggan (INQUIRY / FAQ) secara ramah & kontekstual berdasarkan katalog produk aktif.
+ * Service untuk menjawab pertanyaan umum pasien (INQUIRY / FAQ) klinik secara ramah, profesional, & empatik.
  */
 export const answerInquiry = async (message: string, catalogContext: string, history: ChatMessage[] = []): Promise<string> => {
   try {
-    const systemPrompt = `Kamu adalah Customer Service AI yang ramah, sopan, dan profesional untuk toko online UMKM.
-Tugasmu adalah menjawab pertanyaan pelanggan (Inquiry/FAQ) secara singkat, jelas, dan membantu berdasarkan konteks katalog produk berikut:
+    const systemPrompt = `Kamu adalah Customer Service AI (Resepsionis) yang ramah, sopan, empatik, dan profesional untuk Klinik Kecantikan & Klinik Gigi.
+Tugasmu adalah menjawab pertanyaan pasien (Inquiry/FAQ) secara singkat, jelas, dan membantu berdasarkan konteks katalog layanan perawatan & jadwal klinik berikut:
 
-Katalog Produk Aktif Toko Kami:
+Katalog Layanan & Tarif Klinik Aktif:
 ${catalogContext}
 
-Informasi Toko Umum:
-- Jam Operasional: Setiap hari, 09:00 - 21:00 WIB
-- Lokasi Pengiriman: Jakarta Selatan
-- Metode Pembayaran: Transfer Bank & QRIS Otomatis
+Informasi Umum Klinik:
+- Jam Operasional: Senin - Sabtu, 09:00 - 20:00 WIB (Minggu & Libur Nasional Tutup)
+- Lokasi Klinik: Jl. Kesehatan Raya No. 88, Jakarta
+- Metode Pembayaran: Cash, QRIS, Transfer Bank, & Kartu Kredit
 
-Aturan Keamanan & Komunikasi:
-- Gunakan bahasa Indonesia yang santun, akrab, dan bersahabat (gunakan sapaan "Kak" atau "Kakak").
-- Jika menanyakan harga/stok, jawab secara presisi sesuai katalog aktif di atas.
-- Jika menanyakan produk yang tidak ada di katalog, katakan dengan sopan bahwa produk tersebut saat ini belum tersedia.
-- Jangan memberikan jawaban yang terlalu panjang atau bertele-tele. Maksimal 3-4 kalimat. Akhiri dengan emotikon yang ramah.`;
+Aturan Komunikasi:
+- Gunakan bahasa Indonesia yang santun, ramah, dan empatik (gunakan sapaan "Kak" atau "Kakak").
+- Jika menanyakan harga treatment / dokter, jawab secara presisi sesuai katalog aktif di atas.
+- Jika menanyakan treatment yang tidak ada di katalog, katakan dengan sopan bahwa layanan tersebut saat ini belum tersedia di klinik kami.
+- Jangan memberikan konsultasi medis yang terlalu berisiko, sarankan pasien untuk mendaftar reservasi janji temu agar bisa diperiksa langsung oleh dokter profesional kami.
+- Maksimal 3-4 kalimat. Akhiri dengan sapaan atau emotikon yang ramah.`;
 
     const formattedMessages = [
       {
@@ -131,51 +132,52 @@ Aturan Keamanan & Komunikasi:
       temperature: 0.4,
     });
 
-    return response.choices[0]?.message?.content || 'Halo! Ada yang bisa kami bantu seputar pemesanan produk? 😊';
+    return response.choices[0]?.message?.content || 'Halo Kak! Ada yang bisa kami bantu seputar informasi perawatan gigi dan kecantikan di klinik kami? 😊';
   } catch (error) {
     console.error('❌ [AI Service] Gagal menyusun balasan inquiry:', error);
-    return 'Halo! Pertanyaan Kakak telah kami terima. Admin kami akan segera membalas pesan Kakak ya! 😊';
+    return 'Halo Kak! Pertanyaan Kakak telah kami terima. Admin resepsionis kami akan segera membantu membalas pesan Kakak ya! 😊';
   }
 };
 
 /**
- * Service untuk mengekstrak pesanan terstruktur dari pesan chat WhatsApp dengan validasi katalog produk resmi.
+ * Service untuk mengekstrak data reservasi klinik terstruktur dari chat WhatsApp pasien.
  */
-export const extractOrderFromChat = async (
+export const extractBookingFromChat = async (
   message: string,
   catalogContext: string,
   history: ChatMessage[] = [],
-  currentOrder?: ExtractedOrder
-): Promise<ExtractedOrder> => {
+  currentBooking?: ExtractedBooking
+): Promise<ExtractedBooking> => {
   try {
-    const currentOrderContext = currentOrder && currentOrder.pesanan.length > 0
-      ? `\nPesanan Aktif Saat Ini yang Sedang Berjalan:\n${JSON.stringify(currentOrder, null, 2)}\n`
+    const currentBookingContext = currentBooking && currentBooking.layanan_dipilih.length > 0
+      ? `\nReservasi Aktif Saat Ini yang Sedang Berjalan:\n${JSON.stringify(currentBooking, null, 2)}\n`
       : '';
 
-    const systemPrompt = `Kamu adalah sistem kecerdasan buatan untuk rekap otomatis toko online. Tugasmu adalah mengekstrak teks chat pesanan yang berantakan menjadi data JSON yang bersih, terstruktur, dan tervalidasi terhadap Katalog Produk resmi.
+    const systemPrompt = `Kamu adalah sistem AI ekstraksi data reservasi untuk Klinik Kecantikan & Klinik Gigi. Tugasmu adalah mengekstrak chat pendaftaran pasien menjadi data JSON yang bersih, terstruktur, dan tervalidasi terhadap Katalog Layanan Klinik resmi.
 
-Katalog Produk Resmi Toko Kami:
+Katalog Layanan Klinik Resmi:
 ${catalogContext}
-${currentOrderContext}
+${currentBookingContext}
+
 Tugasmu:
-1. Ekstrak nama pembeli, nomor HP (jika disebutkan dalam chat), pesanan produk, dan alamat pengiriman.
-2. Setiap produk yang dipesan pembeli wajib dicocokkan (fuzzy match) dengan Nama Produk yang ada di Katalog Produk Resmi di atas. JANGAN gunakan nama produk di luar katalog jika tidak ada kemiripan yang masuk akal.
-3. Untuk setiap produk yang berhasil dicocokkan, isi detail berikut:
-   - nama_produk: Gunakan nama produk resmi dari Katalog Produk Resmi.
-   - jumlah: Jumlah unit yang dibeli (harus berupa angka/number).
-   - harga_satuan: Harga satuan resmi dari Katalog Produk Resmi (harus berupa angka/number).
-   - subtotal: Hasil kali dari jumlah dan harga_satuan (harus berupa angka/number).
-4. Hitung total_harga: Jumlah akumulasi dari seluruh subtotal pesanan (harus berupa angka/number).
-5. Jika pembeli memesan sesuatu yang sama sekali tidak ada di Katalog, abaikan item tersebut dan jangan masukkan ke dalam array 'pesanan'.
-6. JIKA di dalam chat pengirim TIDAK menyebutkan menu/produk yang ingin dipesan secara jelas (atau hanya berisi teks tambahan seperti "ada tambahan lagi", "tambah lagi kak" tanpa detail menu), maka kamu WAJIB mengembalikan array 'pesanan' kosong [] dan total_harga 0 (kecuali jika ada Pesanan Aktif Saat Ini yang ingin ditambahkan). JANGAN PERNAH mengarang (halusinasi) nama produk, nama pembeli, nomor HP, atau alamat pengiriman jika informasi tersebut tidak ada pada chat pengirim atau Pesanan Aktif Saat Ini.
-7. JIKA ada "Pesanan Aktif Saat Ini" (pada context di atas), dan pelanggan bermaksud menambah, mengurangi, atau mengganti item (contoh: "tambah sate 1 lagi", "ganti bakso jadi 2 porsi"), gabungkan atau perbarui Pesanan Aktif Saat Ini dengan perubahan tersebut dan kembalikan seluruh pesanan yang sudah digabungkan secara lengkap. Tetap pertahankan nama pembeli dan alamat pengiriman dari Pesanan Aktif Saat Ini jika tidak ada informasi baru.
+1. Ekstrak nama pasien, nomor HP (jika disebutkan), daftar tindakan/treatment yang dipilih, tanggal booking/kedatangan, jam slot kedatangan, dan nama dokter pilihan (jika disebutkan).
+2. Setiap treatment yang dipilih pasien wajib dicocokkan (fuzzy match) dengan Nama Layanan yang ada di Katalog Layanan Klinik Resmi di atas.
+3. Untuk setiap layanan yang cocok, isi:
+   - nama_layanan: Gunakan Nama Layanan resmi dari Katalog.
+   - estimasi_harga: Harga resmi dari Katalog (harus angka/number).
+4. Hitung total_estimasi: Jumlah akumulasi harga dari seluruh layanan yang dipilih (harus angka/number).
+5. JIKA pasien menyebutkan tanggal/jam kedatangan (contoh: "besok jam 2 siang", "sabtu jam 10 pagi", "tanggal 12 jam 14.00"), ekstrak menjadi string tanggal_booking dan jam_booking yang rapi (contoh: tanggal_booking: "Sabtu, 10 Agustus", jam_booking: "14:00 WIB").
+6. JIKA pasien TIDAK menyebutkan layanan perawatan secara jelas, kembalikan array 'layanan_dipilih' kosong [] dan total_estimasi 0.
+7. JIKA ada "Reservasi Aktif Saat Ini", gabungkan atau perbarui informasi baru tanpa menghapus data pasien/layanan yang sudah ada kecuali diminta diubah oleh pasien.
 
 Struktur JSON yang wajib kamu kembalikan:
-- nama_pembeli (string, gunakan dari Pesanan Aktif jika ada dan tidak diubah, kosongkan "" jika tidak ada)
-- nomor_hp (string, gunakan dari Pesanan Aktif jika ada dan tidak diubah, kosongkan "" jika tidak ada)
-- pesanan (array of object, masing-masing memiliki key: 'nama_produk', 'jumlah', 'harga_satuan', 'subtotal', kosongkan [] jika tidak ada produk cocok)
-- total_harga (number, jumlah dari seluruh subtotal)
-- alamat_pengiriman (string, gunakan dari Pesanan Aktif jika ada dan tidak diubah, kosongkan "" jika tidak ada)
+- nama_pasien (string, kosongkan "" jika belum disebutkan)
+- nomor_hp (string, kosongkan "" jika belum disebutkan)
+- layanan_dipilih (array of object: 'nama_layanan', 'estimasi_harga')
+- tanggal_booking (string, kosongkan "" jika belum disebutkan)
+- jam_booking (string, kosongkan "" jika belum disebutkan)
+- dokter_pilihan (string, kosongkan "-" jika tidak memilih dokter khusus)
+- total_estimasi (number, jumlah dari seluruh estimasi harga)
 
 Kamu WAJIB mengembalikan respon HANYA berupa objek JSON mentah yang valid, tanpa teks basa-basi, tanpa tanda backticks (\`\`\`json), dan tanpa penjelasan apa pun.`;
 
@@ -200,22 +202,22 @@ Kamu WAJIB mengembalikan respon HANYA berupa objek JSON mentah yang valid, tanpa
       response_format: {
         type: 'json_object',
       },
-      temperature: 0.1, // Suhu rendah agar AI lebih konsisten dan presisi dalam ekstraksi & kalkulasi harga
+      temperature: 0.1,
     });
 
     const rawJsonString = response.choices[0]?.message?.content || '{}';
-    const parsedData: ExtractedOrder = JSON.parse(rawJsonString);
+    const parsedData: ExtractedBooking = JSON.parse(rawJsonString);
     return parsedData;
   } catch (error) {
-    console.error('❌ [AI Service] Gagal mengekstrak pesanan dari chat menggunakan Groq:', error);
-    // Kembalikan struktur kosong standar jika terjadi kegagalan agar sistem antrean tidak langsung crash total
+    console.error('❌ [AI Service] Gagal mengekstrak data reservasi klinik dari chat:', error);
     return {
-      nama_pembeli: '',
+      nama_pasien: '',
       nomor_hp: '',
-      pesanan: [],
-      total_harga: 0,
-      alamat_pengiriman: '',
+      layanan_dipilih: [],
+      tanggal_booking: '',
+      jam_booking: '',
+      dokter_pilihan: '-',
+      total_estimasi: 0,
     };
   }
 };
-

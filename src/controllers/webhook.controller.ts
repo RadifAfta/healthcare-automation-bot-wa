@@ -82,6 +82,9 @@ export const receiveWhatsappChat = async (
   next: NextFunction
 ): Promise<void> => {
   try {
+    console.log('\n📩 [DEBUG WEBHOOK POST HITTED] Headers:', JSON.stringify(req.headers));
+    console.log('📩 [DEBUG WEBHOOK POST HITTED] Body:', JSON.stringify(req.body, null, 2));
+
     // 1. Verifikasi Keamanan Signature HMAC-SHA256 (jika META_APP_SECRET terpasang)
     if (env.META_APP_SECRET && env.META_APP_SECRET.trim() !== '' && !verifyMetaSignature(req)) {
       console.warn('⛔ [Webhook Security] Signature Webhook Meta tidak valid! Request ditolak.');
