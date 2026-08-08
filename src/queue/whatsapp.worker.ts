@@ -15,13 +15,13 @@ interface ChatJobData {
 // Inisialisasi WhatsApp Provider dari Factory
 const whatsappProvider = WhatsAppProviderFactory.getProvider();
 
-// Helper untuk menyusun teks Kartu Reservasi Klinik
+// Helper untuk menyusun teks Kartu Reservasi Klinik Gigi
 const renderBookingRecap = (booking: any, cleanSenderPhone: string): string => {
   const treatmentDetailsStr = booking.layanan_dipilih
     .map((p: any) => `- *${p.nama_layanan}*: Rp${p.estimasi_harga.toLocaleString('id-ID')}`)
     .join('\n');
 
-  return `🤖 *📋 KARTU RESERVASI KLINIK* \n\nBerikut rincian jadwal janji temu perawatan Kakak:\n\n- *Nama Pasien:* ${booking.nama_pasien || 'Pasien'}\n- *Nomor HP:* ${booking.nomor_hp || cleanSenderPhone}\n- *Tanggal Booking:* ${booking.tanggal_booking || '-'}\n- *Jam Slot:* ${booking.jam_booking || '-'}\n- *Dokter Pilihan:* ${booking.dokter_pilihan || '-'}\n\n*Treatment Dipilih:*\n${treatmentDetailsStr}\n\n*💰 Total Estimasi Biaya:* *Rp${booking.total_estimasi.toLocaleString('id-ID')}*\n\nApakah jadwal reservasi di atas sudah sesuai? (Ketik **Ya** untuk konfirmasi, atau ketik jika ada perubahan/tambahan). 😊`;
+  return `🤖 *📋 KARTU RESERVASI KLINIK GIGI* \n\nBerikut rincian jadwal janji temu pemeriksaan gigi Kakak:\n\n- *Nama Pasien:* ${booking.nama_pasien || 'Pasien'}\n- *Nomor HP:* ${booking.nomor_hp || cleanSenderPhone}\n- *Tanggal Booking:* ${booking.tanggal_booking || '-'}\n- *Jam Slot:* ${booking.jam_booking || '-'}\n- *Dokter Gigi Pilihan:* ${booking.dokter_pilihan || '-'}\n\n*Tindakan Gigi Dipilih:*\n${treatmentDetailsStr}\n\n*💰 Total Estimasi Biaya:* *Rp${booking.total_estimasi.toLocaleString('id-ID')}*\n\nApakah jadwal reservasi periksa gigi di atas sudah sesuai? (Ketik **Ya** untuk konfirmasi, atau ketik jika ada perubahan/tambahan). 😊`;
 };
 
 // Inisialisasi Worker BullMQ (Consumer)
@@ -64,22 +64,22 @@ export const whatsappWorker = new Worker<ChatJobData>(
     const intent = await classifyIntent(message, session.history);
     console.log(`👷 [Worker] Niat terdeteksi: ${intent.toUpperCase()}`);
 
-    // Ambil data katalog layanan klinik aktif dari Google Sheets
+    // Ambil data katalog perawatan gigi aktif dari Google Sheets
     const catalog = await getCatalogFromSheet();
     const catalogContext = catalog
-      .map((item) => `- ${item.nama} (Tarif: Rp${item.harga.toLocaleString('id-ID')}, Durasi: ${item.durasi || '45m'}, Dokter: ${item.dokter || 'Tim Dokter'})`)
+      .map((item) => `- ${item.nama} (Tarif: Rp${item.harga.toLocaleString('id-ID')}, Durasi: ${item.durasi || '45m'}, Dokter Gigi: ${item.dokter || 'Tim Dokter Gigi'})`)
       .join('\n');
 
     let replyText = '';
 
     // ------------------------------------------------------------------------
-    // HANDLING GLOBAL INTENT: CANCEL (BATALKAN RESERVASI)
+    // HANDLING GLOBAL INTENT: CANCEL (BATALKAN RESERVASI KLINIK GIGI)
     // ------------------------------------------------------------------------
     if (intent === 'CANCEL') {
       console.log(`👷 [Worker] Menerima permintaan pembatalan dari ${sender}`);
       session.step = 'IDLE';
       session.booking = undefined;
-      replyText = `🤖 Baik Kak, reservasi janji temu Anda saat ini telah dibatalkan. Jika ingin melakukan reservasi perawatan lagi di lain waktu, cukup ketik kembali layanan yang diinginkan ya Kak. Terima kasih! 😊`;
+      replyText = `🤖 Baik Kak, reservasi janji temu dokter gigi Anda saat ini telah dibatalkan. Jika ingin melakukan reservasi pemeriksaan gigi di lain waktu, cukup ketik kembali tindakan yang diinginkan ya Kak. Terima kasih! 😊`;
       await whatsappProvider.sendMessage(sender, replyText);
       session.history.push({ role: 'assistant', content: replyText });
       await sessionService.setSession(sender, session);
@@ -88,14 +88,14 @@ export const whatsappWorker = new Worker<ChatJobData>(
     }
 
     // ------------------------------------------------------------------------
-    // STATE MACHINE FLOW (KLINIK KECANTIKAN & GIGI)
+    // STATE MACHINE FLOW (KLINIK GIGI / DENTAL CLINIC)
     // ------------------------------------------------------------------------
 
     // A. STATE: AWAITING_NAME (MENUNGGU NAMA PASIEN)
     if (session.step === 'AWAITING_NAME') {
       if (intent === 'INQUIRY') {
         replyText = await answerInquiry(message, catalogContext, session.history);
-        replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Nama Lengkap Pasien** terlebih dahulu ya Kak agar reservasi bisa kami catat. 😊`;
+        replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Nama Lengkap Pasien** terlebih dahulu ya Kak agar reservasi klinik gigi bisa kami catat. 😊`;
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
         await sessionService.setSession(sender, session);
@@ -112,7 +112,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
                                   
         if (isDateTimeMissing) {
           session.step = 'AWAITING_DATE_TIME';
-          replyText = `🤖 Terima kasih Kak *${inputName}*! Selanjutnya, mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** yang Kakak inginkan untuk treatment ya. 😊`;
+          replyText = `🤖 Terima kasih Kak *${inputName}*! Selanjutnya, mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** yang Kakak inginkan untuk periksa gigi ya. 😊`;
         } else {
           session.step = 'AWAITING_CONFIRMATION';
           replyText = renderBookingRecap(session.booking, cleanSenderPhone);
@@ -128,7 +128,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
     if (session.step === 'AWAITING_DATE_TIME') {
       if (intent === 'INQUIRY') {
         replyText = await answerInquiry(message, catalogContext, session.history);
-        replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak terlebih dahulu ya agar bisa kami ketersediaan tempatnya. 😊`;
+        replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak terlebih dahulu ya agar bisa kami jadwalkan dokter giginya. 😊`;
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
         await sessionService.setSession(sender, session);
@@ -155,10 +155,10 @@ export const whatsappWorker = new Worker<ChatJobData>(
     if (session.step === 'AWAITING_CONFIRMATION') {
       if (intent === 'CONFIRM') {
         if (session.booking) {
-          console.log(`📊 [Sheets Service] Menulis data reservasi klinik ke Google Sheets...`);
+          console.log(`📊 [Sheets Service] Menulis data reservasi klinik gigi ke Google Sheets...`);
           await appendBookingToSheet(session.booking);
           
-          replyText = `🤖 *Reservasi Berhasil Terdaftar!* \n\nHalo Kak *${session.booking.nama_pasien}*, janji temu perawatan Anda telah resmi terdaftar di sistem klinik kami. Admin resepsionis kami akan mengonfirmasi ulang jadwal Kakak. Terima kasih dan sampai jumpa di klinik! 🙏😊`;
+          replyText = `🤖 *Reservasi Klinik Gigi Berhasil Terdaftar!* \n\nHalo Kak *${session.booking.nama_pasien}*, janji temu pemeriksaan gigi Anda telah resmi terdaftar di klinik gigi kami. Tim resepsionis kami akan mengonfirmasi ulang jadwal Kakak. Terima kasih dan sampai jumpa di klinik gigi kami! 🙏😊`;
           
           await whatsappProvider.sendMessage(sender, replyText);
           session.history.push({ role: 'assistant', content: replyText });
@@ -166,20 +166,20 @@ export const whatsappWorker = new Worker<ChatJobData>(
           session.step = 'IDLE';
           session.booking = undefined;
           await sessionService.setSession(sender, session);
-          console.log(`👷 [Worker] Reservasi selesai & ditulis ke Google Sheets untuk ${sender}`);
+          console.log(`👷 [Worker] Reservasi klinik gigi selesai & ditulis ke Google Sheets untuk ${sender}`);
         }
         return;
       }
       
       if (intent === 'BOOKING') {
-        console.log(`👷 [Worker] Mendeteksi perubahan/tambahan layanan dalam AWAITING_CONFIRMATION`);
+        console.log(`👷 [Worker] Mendeteksi perubahan/tambahan tindakan dalam AWAITING_CONFIRMATION`);
         const updatedBooking = await extractBookingFromChat(message, catalogContext, session.history, session.booking);
         
         if (updatedBooking && updatedBooking.layanan_dipilih && updatedBooking.layanan_dipilih.length > 0) {
           session.booking = updatedBooking;
           replyText = renderBookingRecap(session.booking, cleanSenderPhone);
         } else {
-          replyText = `🤖 Maaf Kak, perubahan reservasi belum sesuai dengan katalog perawatan kami. Silakan ketik kembali nama treatment yang diinginkan ya Kak.`;
+          replyText = `🤖 Maaf Kak, perubahan reservasi belum sesuai dengan katalog perawatan gigi kami. Silakan ketik kembali nama tindakan gigi yang diinginkan ya Kak.`;
         }
         
         await whatsappProvider.sendMessage(sender, replyText);
@@ -190,7 +190,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
 
       if (intent === 'INQUIRY') {
         replyText = await answerInquiry(message, catalogContext, session.history);
-        replyText = `${replyText}\n\n*Catatan:* Konfirmasi jadwal reservasi Kakak di atas masih menggantung. Apakah rincian janji temu sudah sesuai? (Ketik **Ya** jika sesuai). 😊`;
+        replyText = `${replyText}\n\n*Catatan:* Konfirmasi jadwal periksa gigi Kakak di atas masih menggantung. Apakah rincian janji temu sudah sesuai? (Ketik **Ya** jika sesuai). 😊`;
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
         await sessionService.setSession(sender, session);
@@ -201,12 +201,12 @@ export const whatsappWorker = new Worker<ChatJobData>(
     // D. STATE: IDLE (TIDAK ADA RESERVASI AKTIF)
     if (session.step === 'IDLE') {
       if (intent === 'BOOKING') {
-        console.log(`👷 [Worker] Memproses pendaftaran reservasi klinik baru...`);
+        console.log(`👷 [Worker] Memproses pendaftaran reservasi klinik gigi baru...`);
         const extractedBooking = await extractBookingFromChat(message, catalogContext, session.history);
         
         if (!extractedBooking.layanan_dipilih || extractedBooking.layanan_dipilih.length === 0) {
-          console.log(`⚠️ [Worker] Pasien berniat booking tetapi tidak ada tindakan yang cocok dengan katalog.`);
-          replyText = `🤖 Halo Kak! Kami mendeteksi Kakak ingin melakukan reservasi perawatan, tetapi jenis tindakan yang disebutkan belum tersedia di katalog kami.\n\n*Berikut Layanan yang Tersedia:* \n${catalogContext}\n\nSilakan ketik ulang nama perawatan yang Kakak inginkan ya! Terima kasih! 😊`;
+          console.log(`⚠️ [Worker] Pasien berniat booking tetapi tidak ada tindakan gigi yang cocok dengan katalog.`);
+          replyText = `🤖 Halo Kak! Kami mendeteksi Kakak ingin melakukan reservasi pemeriksaan gigi, tetapi jenis tindakan yang disebutkan belum tersedia di katalog kami.\n\n*Berikut Perawatan Gigi yang Tersedia:* \n${catalogContext}\n\nSilakan ketik ulang nama tindakan gigi yang Kakak inginkan ya! Terima kasih! 😊`;
           await whatsappProvider.sendMessage(sender, replyText);
           session.history.push({ role: 'assistant', content: replyText });
           await sessionService.setSession(sender, session);
@@ -226,10 +226,10 @@ export const whatsappWorker = new Worker<ChatJobData>(
 
         if (isNameMissing) {
           session.step = 'AWAITING_NAME';
-          replyText = `🤖 Terima kasih! Mohon infokan **Nama Lengkap Pasien** Kakak ya agar reservasi klinik bisa kami catat. 😊`;
+          replyText = `🤖 Terima kasih! Mohon infokan **Nama Lengkap Pasien** Kakak ya agar reservasi periksa gigi bisa kami catat. 😊`;
         } else if (isDateTimeMissing) {
           session.step = 'AWAITING_DATE_TIME';
-          replyText = `🤖 Terima kasih Kak *${extractedBooking.nama_pasien}*! Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak ya agar kami persiapkan tempatnya. 😊`;
+          replyText = `🤖 Terima kasih Kak *${extractedBooking.nama_pasien}*! Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak ya agar kami jadwalkan dokter giginya. 😊`;
         } else {
           session.step = 'AWAITING_CONFIRMATION';
           replyText = renderBookingRecap(extractedBooking, cleanSenderPhone);
@@ -251,7 +251,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
       }
 
       if (intent === 'COMPLAINT') {
-        replyText = `🤖 Halo Kak! Terima kasih atas informasinya. Keluhan Kakak telah kami catat. Admin resepsionis klinik kami akan segera menghubungi Kakak secara manual ya. Mohon maaf atas ketidaknyamanannya! 🙏`;
+        replyText = `🤖 Halo Kak! Terima kasih atas informasinya. Keluhan Kakak telah kami catat. Tim resepsionis klinik gigi kami akan segera menghubungi Kakak secara manual ya. Mohon maaf atas ketidaknyamanannya! 🙏`;
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
         await sessionService.setSession(sender, session);
@@ -259,7 +259,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
       }
 
       // Default Greeting
-      replyText = `🤖 Halo Kak! Selamat datang di Klinik Kecantikan & Gigi Kami. 😊\n\nAda yang bisa kami bantu? Kakak bisa menanyakan info perawatan/tarif dokter, atau bisa langsung mengetikkan jadwal booking perawatan Kakak.\n\n*Contoh Format Reservasi:*\n_\"Mau booking scaling gigi dan facial glow untuk besok jam 2 siang kak\"_`;
+      replyText = `🤖 Halo Kak! Selamat datang di Klinik Gigi (Dental Clinic) Kami. 😊\n\nAda yang bisa kami bantu seputar perawatan atau kesehatan gigi Kakak? Kakak bisa menanyakan estimasi biaya/tarif dokter gigi, atau bisa langsung mengetikkan jadwal booking periksa gigi Kakak.\n\n*Contoh Format Reservasi:*\n_\"Mau booking scaling gigi dan tambal gigi untuk besok jam 2 siang kak\"_`;
       await whatsappProvider.sendMessage(sender, replyText);
       session.history.push({ role: 'assistant', content: replyText });
       await sessionService.setSession(sender, session);
@@ -280,5 +280,5 @@ whatsappWorker.on('failed', (job, err) => {
   console.error(`🚨 [Worker] Job #${job?.id} GAGAL diproses! Alasan:`, err.message);
 });
 
-console.log(`⚙️ [Worker] Worker '${WHATSAPP_QUEUE_NAME}' (Klinik Booking) aktif...`);
+console.log(`⚙️ [Worker] Worker '${WHATSAPP_QUEUE_NAME}' (Dental Clinic Booking) aktif...`);
 export default whatsappWorker;
