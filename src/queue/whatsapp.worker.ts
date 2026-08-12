@@ -54,9 +54,24 @@ export const whatsappWorker = new Worker<ChatJobData>(
 
     console.log(`👷 [Worker] Status Sesi ${sender}: ${session.step}, Riwayat Chat: ${session.history.length} pesan`);
 
-    // Jika dalam mode HANDOFF_ADMIN, bot diam dan biarkan Admin Manusia membalas
+    let replyText = '';
+
+    // 0. PERINTAH KHUSUS RESET/REAKTIVASI BOT OLEH ADMIN/PASIEN
+    const cleanMessageLower = message.trim().toLowerCase();
+    if (cleanMessageLower === '!bot-on' || cleanMessageLower === '!reset' || cleanMessageLower === '!aktif') {
+      console.log(`👷 [Worker] Perintah reaktivasi bot terdeteksi dari ${sender}`);
+      session.step = 'IDLE';
+      session.booking = undefined;
+      replyText = `🤖 *Bot AI Klinik Gigi Telah Aktif Kembali!* \n\nHalo Kak! Bot AI kami siap melayani pertanyaan tarif, informasi dokter gigi, dan reservasi periksa gigi Kakak 24/7. Ada yang bisa kami bantu? 😊`;
+      await whatsappProvider.sendMessage(sender, replyText);
+      session.history.push({ role: 'assistant', content: replyText });
+      await sessionService.setSession(sender, session);
+      return;
+    }
+
+    // 1. JIKA DALAM MODE HANDOFF_ADMIN (BOT SILENT MODE)
     if (session.step === 'HANDOFF_ADMIN') {
-      console.log(`ℹ️ [Worker] Mengabaikan pesan dari ${sender} karena sesi sedang ditangani Admin Manusia.`);
+      console.log(`ℹ️ [Worker] Mengabaikan pesan dari ${sender} karena sesi sedang ditangani Admin Manusia via Meta Business Suite.`);
       return;
     }
 
@@ -70,7 +85,20 @@ export const whatsappWorker = new Worker<ChatJobData>(
       .map((item) => `- ${item.nama} (Tarif: Rp${item.harga.toLocaleString('id-ID')}, Durasi: ${item.durasi || '45m'}, Dokter Gigi: ${item.dokter || 'Tim Dokter Gigi'})`)
       .join('\n');
 
-    let replyText = '';
+    // ------------------------------------------------------------------------
+    // HANDLING GLOBAL INTENT: HANDOFF TO HUMAN ADMIN (TALK_TO_HUMAN / COMPLAINT)
+    // ------------------------------------------------------------------------
+    if (intent === 'TALK_TO_HUMAN' || intent === 'COMPLAINT') {
+      console.log(`👷 [Worker] Menerima permintaan pengalihan ke Admin Manusia dari ${sender}`);
+      session.step = 'HANDOFF_ADMIN';
+      replyText = `🤖 Baik Kak, pesan Kakak telah kami teruskan ke Admin Resepsionis Klinik Gigi kami. Bot otomatis diistirahatkan sementara untuk nomor ini. Admin kami akan segera membalas percakapan Kakak secara manual di Meta Business Suite ya. Terima kasih! 🙏`;
+      await whatsappProvider.sendMessage(sender, replyText);
+      session.history.push({ role: 'assistant', content: replyText });
+      // Simpan sesi HANDOFF_ADMIN dengan TTL 2 jam (7200 detik)
+      await sessionService.setSession(sender, session, 7200);
+      console.log(`👷 [Worker] Sesi diubah ke HANDOFF_ADMIN (TTL: 2 jam) untuk ${sender}\n`);
+      return;
+    }
 
     // ------------------------------------------------------------------------
     // HANDLING GLOBAL INTENT: CANCEL (BATALKAN RESERVASI KLINIK GIGI)
@@ -244,14 +272,6 @@ export const whatsappWorker = new Worker<ChatJobData>(
       if (intent === 'INQUIRY') {
         replyText = await answerInquiry(message, catalogContext, session.history);
         replyText = `🤖 ${replyText}`;
-        await whatsappProvider.sendMessage(sender, replyText);
-        session.history.push({ role: 'assistant', content: replyText });
-        await sessionService.setSession(sender, session);
-        return;
-      }
-
-      if (intent === 'COMPLAINT') {
-        replyText = `🤖 Halo Kak! Terima kasih atas informasinya. Keluhan Kakak telah kami catat. Tim resepsionis klinik gigi kami akan segera menghubungi Kakak secara manual ya. Mohon maaf atas ketidaknyamanannya! 🙏`;
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
         await sessionService.setSession(sender, session);
