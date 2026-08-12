@@ -5,6 +5,7 @@ import { classifyIntent, extractBookingFromChat, answerInquiry } from '../servic
 import { appendBookingToSheet, getCatalogFromSheet } from '../services/sheets.service';
 import { WhatsAppProviderFactory } from '../services/whatsapp-provider.service';
 import { sessionService, BookingSession } from '../services/session.service';
+import { env } from '../config/env';
 
 // Definisikan bentuk interface data yang ditangani oleh Job
 interface ChatJobData {
@@ -55,27 +56,88 @@ export const whatsappWorker = new Worker<ChatJobData>(
     console.log(`👷 [Worker] Status Sesi ${sender}: ${session.step}, Riwayat Chat: ${session.history.length} pesan`);
 
     let replyText = '';
+    const cleanMessageTrim = message.trim();
+    const cleanMessageLower = cleanMessageTrim.toLowerCase();
 
-    // 0. PERINTAH KHUSUS RESET/REAKTIVASI BOT OLEH ADMIN/PASIEN
-    const cleanMessageLower = message.trim().toLowerCase();
-    if (cleanMessageLower === '!bot-on' || cleanMessageLower === '!reset' || cleanMessageLower === '!aktif') {
-      console.log(`👷 [Worker] Perintah reaktivasi bot terdeteksi dari ${sender}`);
-      session.step = 'IDLE';
-      session.booking = undefined;
-      replyText = `🤖 *Bot AI Klinik Gigi Telah Aktif Kembali!* \n\nHalo Kak! Bot AI kami siap melayani pertanyaan tarif, informasi dokter gigi, dan reservasi periksa gigi Kakak 24/7. Ada yang bisa kami bantu? 😊`;
-      await whatsappProvider.sendMessage(sender, replyText);
-      session.history.push({ role: 'assistant', content: replyText });
-      await sessionService.setSession(sender, session);
+    // ------------------------------------------------------------------------
+    // 0. PERINTAH KHUSUS ADMIN RELAY VIA WHATSAPP (!balas & !bot-on)
+    // ------------------------------------------------------------------------
+    
+    // A. PERINTAH ADMIN: !balas <nomor_pasien> <pesan_admin>
+    if (cleanMessageLower.startsWith('!balas')) {
+      const parts = cleanMessageTrim.split(/\s+/);
+      if (parts.length >= 3) {
+        const targetPhone = parts[1].replace(/[^0-9]/g, '');
+        const adminReplyText = parts.slice(2).join(' ');
+
+        console.log(`👷 [Worker] Admin ${sender} membalas ke pasien ${targetPhone}: "${adminReplyText}"`);
+        
+        // Kirim balasan admin langsung ke WhatsApp Pasien
+        await whatsappProvider.sendMessage(targetPhone, adminReplyText);
+
+        // Update history di sesi pasien
+        let patientSession = await sessionService.getSession(targetPhone);
+        if (patientSession) {
+          patientSession.history.push({ role: 'assistant', content: adminReplyText });
+          await sessionService.setSession(targetPhone, patientSession);
+        }
+
+        // Kirim konfirmasi balik ke WA Admin
+        replyText = `✅ *Pesan Berhasil Terkirim!*\n\n📲 *Penerima:* ${targetPhone}\n💬 *Pesan Admin:* "${adminReplyText}"`;
+        await whatsappProvider.sendMessage(sender, replyText);
+        return;
+      } else {
+        replyText = `⚠️ *Format Perintah Balas Salah!*\n\nGunakan format: \`!balas <nomor_pasien> <pesan_admin>\`\n*Contoh:* \`!balas 6282245480975 Halo Pak, ada yang bisa dibantu?\``;
+        await whatsappProvider.sendMessage(sender, replyText);
+        return;
+      }
+    }
+
+    // B. PERINTAH ADMIN: !bot-on <nomor_pasien> ATAU !bot-on (untuk pasien sendiri)
+    if (cleanMessageLower.startsWith('!bot-on') || cleanMessageLower.startsWith('!reset') || cleanMessageLower.startsWith('!aktif')) {
+      const parts = cleanMessageTrim.split(/\s+/);
+      const targetPhone = parts.length >= 2 ? parts[1].replace(/[^0-9]/g, '') : sender;
+
+      console.log(`👷 [Worker] Perintah reaktivasi bot terdeteksi untuk pasien ${targetPhone}`);
+      
+      let targetSession = await sessionService.getSession(targetPhone);
+      if (!targetSession) {
+        targetSession = { step: 'IDLE', history: [] };
+      }
+      targetSession.step = 'IDLE';
+      targetSession.booking = undefined;
+      await sessionService.setSession(targetPhone, targetSession);
+
+      // Kirim notifikasi ke pasien bahwa bot aktif kembali
+      const patientNotification = `🤖 *Bot AI Klinik Gigi Telah Aktif Kembali!* \n\nHalo Kak! Bot AI kami siap melayani pertanyaan tarif, informasi dokter gigi, dan reservasi periksa gigi Kakak 24/7. Ada yang bisa kami bantu? 😊`;
+      await whatsappProvider.sendMessage(targetPhone, patientNotification);
+
+      // Jika perintah dikirim dari WA Admin, kirim konfirmasi ke Admin
+      if (targetPhone !== sender) {
+        replyText = `✅ *Bot AI Berhasil Diaktifkan Kembali!*\n\n📲 *Nomor Pasien:* ${targetPhone}`;
+        await whatsappProvider.sendMessage(sender, replyText);
+      }
       return;
     }
 
-    // 1. JIKA DALAM MODE HANDOFF_ADMIN (BOT SILENT MODE)
+    // ------------------------------------------------------------------------
+    // 1. JIKA PASIEN DALAM MODE HANDOFF_ADMIN (BOT SILENT MODE)
+    // ------------------------------------------------------------------------
     if (session.step === 'HANDOFF_ADMIN') {
-      console.log(`ℹ️ [Worker] Mengabaikan pesan dari ${sender} karena sesi sedang ditangani Admin Manusia via Meta Business Suite.`);
+      console.log(`ℹ️ [Worker] Mengabaikan pesan dari ${sender} karena sesi sedang dalam mode HANDOFF_ADMIN.`);
+      
+      // Jika ADMIN_WA_NUMBER diisi di .env, teruskan pesan baru dari pasien ini ke WA Admin secara otomatis
+      if (env.ADMIN_WA_NUMBER && env.ADMIN_WA_NUMBER.trim() !== '') {
+        const patientName = session.booking?.nama_pasien || 'Pasien';
+        const adminAlertText = `💬 *[PESAN BARU PASIEN HANDOFF]*\n\n👤 *Pasien:* ${patientName} (${cleanSenderPhone})\n💬 *Pesan:* "${message}"\n\n*Balas via WA:* \`!balas ${cleanSenderPhone} <pesan_anda>\``;
+        await whatsappProvider.sendMessage(env.ADMIN_WA_NUMBER, adminAlertText);
+      }
       return;
     }
 
-    // 2. Klasifikasi niat dengan riwayat chat
+    // ------------------------------------------------------------------------
+    // 2. KLASIFIKASI NIAT CHAT
+    // ------------------------------------------------------------------------
     const intent = await classifyIntent(message, session.history);
     console.log(`👷 [Worker] Niat terdeteksi: ${intent.toUpperCase()}`);
 
@@ -91,12 +153,20 @@ export const whatsappWorker = new Worker<ChatJobData>(
     if (intent === 'TALK_TO_HUMAN' || intent === 'COMPLAINT') {
       console.log(`👷 [Worker] Menerima permintaan pengalihan ke Admin Manusia dari ${sender}`);
       session.step = 'HANDOFF_ADMIN';
-      replyText = `🤖 Baik Kak, pesan Kakak telah kami teruskan ke Admin Resepsionis Klinik Gigi kami. Bot otomatis diistirahatkan sementara untuk nomor ini. Admin kami akan segera membalas percakapan Kakak secara manual di Meta Business Suite ya. Terima kasih! 🙏`;
+      replyText = `🤖 Baik Kak, pesan Kakak telah kami teruskan ke Admin Resepsionis Klinik Gigi kami. Bot otomatis diistirahatkan sementara untuk nomor ini. Admin kami akan segera membalas percakapan Kakak secara manual ya. Terima kasih! 🙏`;
       await whatsappProvider.sendMessage(sender, replyText);
       session.history.push({ role: 'assistant', content: replyText });
+      
       // Simpan sesi HANDOFF_ADMIN dengan TTL 2 jam (7200 detik)
       await sessionService.setSession(sender, session, 7200);
-      console.log(`👷 [Worker] Sesi diubah ke HANDOFF_ADMIN (TTL: 2 jam) untuk ${sender}\n`);
+
+      // TERUSKAN ALERT NOTIFIKASI KE NOMOR WHATSAPP ADMIN KLINIK (Jika ADMIN_WA_NUMBER diisi)
+      if (env.ADMIN_WA_NUMBER && env.ADMIN_WA_NUMBER.trim() !== '') {
+        const patientName = session.booking?.nama_pasien || 'Pasien';
+        const adminAlertMessage = `🚨 *[ALERT PASIEN HANDOFF KLINIK GIGI]*\n\n👤 *Pasien:* ${patientName} (${cleanSenderPhone})\n💬 *Pesan Pasien:* "${message}"\n\n💬 *Cara Balas dari WA:* \n\`!balas ${cleanSenderPhone} <pesan_anda>\` \n\n🤖 *Cara Aktifkan Bot Kembali:* \n\`!bot-on ${cleanSenderPhone}\``;
+        console.log(`📡 [Worker] Meneruskan notifikasi Handoff ke WA Admin: ${env.ADMIN_WA_NUMBER}`);
+        await whatsappProvider.sendMessage(env.ADMIN_WA_NUMBER, adminAlertMessage);
+      }
       return;
     }
 

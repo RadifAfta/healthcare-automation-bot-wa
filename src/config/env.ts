@@ -19,6 +19,8 @@ const envSchema = z.object({
   GROQ_API_KEY: z.string({
     required_error: 'GROQ_API_KEY wajib diisi di .env!',
   }).min(1, 'GROQ_API_KEY tidak boleh kosong!'),
+  // Nomor WA HP Admin / Resepsionis untuk menerima alert handoff & membalas pasien (!balas)
+  ADMIN_WA_NUMBER: z.string().default(''),
   // Konfigurasi Google Apps Script Web App Endpoint (Metode Tanpa Service Account)
   GOOGLE_SHEETS_WEBAPP_URL: z.string().default(''),
   GOOGLE_SHEETS_SECRET_TOKEN: z.string().default(''),
