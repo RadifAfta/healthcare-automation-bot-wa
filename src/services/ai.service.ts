@@ -12,7 +12,7 @@ export interface ChatMessage {
 }
 
 // Tipe Niat (Intent) pesan WhatsApp masuk untuk Klinik Gigi (Dental Clinic)
-export type IntentType = 'BOOKING' | 'INQUIRY' | 'COMPLAINT' | 'CONFIRM' | 'CANCEL' | 'TALK_TO_HUMAN' | 'OTHER';
+export type IntentType = 'BOOKING' | 'INQUIRY' | 'COMPLAINT' | 'CONFIRM' | 'CANCEL' | 'TALK_TO_HUMAN' | 'GRATITUDE' | 'OTHER';
 
 // Interface untuk respons deteksi intent
 export interface IntentResult {
@@ -47,12 +47,13 @@ Tentukan kategori pesan dari daftar berikut:
 - INQUIRY: Jika pesan berisi pertanyaan umum tentang biaya/tarif tindakan gigi, katalog perawatan gigi, jam buka klinik gigi, ketersediaan dokter gigi (drg), lokasi fisik klinik, atau syarat persiapan sebelum tindakan gigi. Contoh: "scaling gigi berapa ya kak?", "buka jam berapa?", "drg. amanda ada hari apa aja?", "cabut gigi sakit gak?", "alamat kliniknya di mana?".
 - COMPLAINT: Jika pesan berisi komplain, keluhan kelambatan pelayanan, ketidakpuasan hasil tindakan gigi, atau keluhan noda/sakit gigi pasca periksa. Contoh: "gigi saya sakit banget setelah ditambal kemarin", "pelayanannya lambat banget tadi".
 - TALK_TO_HUMAN: Jika pesan berisi permintaan eksplisit untuk berbicara langsung dengan admin manusia, resepsionis, atau CS klinik. Contoh: "mau bicara sama cs", "admin manusia dong", "transfer ke admin", "mau ngobrol sama admin manusia", "bisa bicara dengan resepsionis?".
-- OTHER: Jika pesan hanya berisi salam pembuka (halo, p, pagi, siang), basa-basi, ucapan terima kasih, atau teks acak yang tidak jelas tujuannya.
+- GRATITUDE: Jika pesan berisi ucapan terima kasih, salam penutup, rasa puas, atau apresiasi setelah informasi/reservasi selesai. Contoh: "terima kasih kak", "makasih ya", "makasih banyak", "thank you", "tq kak", "siap makasih", "oke mantap makasih", "sip makasih ya".
+- OTHER: Jika pesan hanya berisi salam pembuka (halo, p, pagi, siang), basa-basi umum, atau teks acak.
 
 Kamu WAJIB mengembalikan respon HANYA berupa objek JSON mentah yang valid, tanpa teks basa-basi, tanpa tanda backticks (\`\`\`json), dan tanpa penjelasan apa pun.
 Struktur JSON yang wajib kamu kembalikan harus memiliki key berikut:
 {
-  "intent": "BOOKING" | "INQUIRY" | "COMPLAINT" | "CONFIRM" | "CANCEL" | "TALK_TO_HUMAN" | "OTHER",
+  "intent": "BOOKING" | "INQUIRY" | "COMPLAINT" | "CONFIRM" | "CANCEL" | "TALK_TO_HUMAN" | "GRATITUDE" | "OTHER",
   "explanation": "alasan singkat klasifikasi dalam bahasa indonesia"
 }`;
 

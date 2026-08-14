@@ -176,6 +176,20 @@ export const whatsappWorker = new Worker<ChatJobData>(
     }
 
     // ------------------------------------------------------------------------
+    // HANDLING GLOBAL INTENT: GRATITUDE (UCAPAN TERIMA KASIH / SALAM PENUTUP)
+    // ------------------------------------------------------------------------
+    if (intent === 'GRATITUDE') {
+      console.log(`👷 [Worker] Menerima ucapan terima kasih dari ${sender}`);
+      const patientName = session.booking?.nama_pasien || '';
+      const nameCall = patientName ? ` Kak *${patientName}*` : ' Kak';
+      replyText = `🤖 Sama-sama${nameCall}! Senang bisa membantu melayani Kakak. Jika ada pertanyaan seputar perawatan gigi atau ingin konsultasi lagi, jangan ragu untuk chat kami kembali ya. Sampai jumpa di klinik gigi kami! 🙏😊🦷`;
+      await whatsappProvider.sendMessage(sender, replyText);
+      session.history.push({ role: 'assistant', content: replyText });
+      await sessionService.setSession(sender, session);
+      return;
+    }
+
+    // ------------------------------------------------------------------------
     // HANDLING GLOBAL INTENT: CANCEL (BATALKAN RESERVASI KLINIK GIGI)
     // ------------------------------------------------------------------------
     if (intent === 'CANCEL') {
@@ -381,8 +395,14 @@ export const whatsappWorker = new Worker<ChatJobData>(
         return;
       }
 
-      // Default Greeting
-      replyText = `🤖 Halo Kak! Selamat datang di Klinik Gigi (Dental Clinic) Kami. 😊\n\nAda yang bisa kami bantu seputar perawatan atau kesehatan gigi Kakak? Kakak bisa menanyakan estimasi biaya/tarif dokter gigi, atau bisa langsung mengetikkan jadwal booking periksa gigi Kakak.\n\n*Contoh Format Reservasi:*\n_\"Mau booking scaling gigi dan tambal gigi untuk besok jam 2 siang kak\"_`;
+      // Default Response (Sapaan Pembuka atau Percakapan Umum)
+      const isGreeting = /^(halo|hai|p|pagi|siang|sore|malam|assalamu|halo kak|hi|menu|bantuan)/i.test(cleanMessageLower);
+      if (isGreeting) {
+        replyText = `🤖 Halo Kak! Selamat datang di Klinik Gigi (Dental Clinic) Kami. 😊\n\nAda yang bisa kami bantu seputar perawatan atau kesehatan gigi Kakak? Kakak bisa menanyakan estimasi biaya/tarif dokter gigi, atau bisa langsung mengetikkan jadwal booking periksa gigi Kakak.\n\n*Contoh Format Reservasi:*\n_\"Mau booking scaling gigi dan tambal gigi untuk besok jam 2 siang kak\"_`;
+      } else {
+        replyText = await answerInquiry(message, catalogContext, session.history);
+        replyText = `🤖 ${replyText}`;
+      }
       await whatsappProvider.sendMessage(sender, replyText);
       session.history.push({ role: 'assistant', content: replyText });
       await sessionService.setSession(sender, session);
