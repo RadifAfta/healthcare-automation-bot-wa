@@ -143,6 +143,22 @@ Aturan Komunikasi:
 };
 
 /**
+ * Helper untuk membersihkan nama pasien dari kata awalan/akhiran obrolan (seperti "nama saya ... kak")
+ */
+export const cleanPatientName = (rawText: string): string => {
+  if (!rawText) return 'Pasien';
+  let clean = rawText
+    .replace(/^(nama\s+saya|namaku|nama\s*:|nama|atas\s+nama|saya|panggil\s+saja)\s+/i, '')
+    .replace(/\s+(kak|kakak|min|admin|ya|gan|bro|sis|dek)$/i, '')
+    .replace(/[.,!]/g, '')
+    .trim();
+  if (clean.length > 0) {
+    clean = clean.split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  }
+  return clean || 'Pasien';
+};
+
+/**
  * Service untuk mengekstrak data reservasi klinik gigi terstruktur dari chat WhatsApp pasien.
  */
 export const extractBookingFromChat = async (
@@ -173,16 +189,23 @@ ${catalogContext}
 ${currentBookingContext}
 
 Tugas & Aturan Ekstraksi Presisi:
-1. Ekstrak nama pasien, nomor HP, daftar tindakan gigi, tanggal booking, jam slot kedatangan, dan nama dokter gigi (drg).
+1. NAMA PASIEN: Ekstrak HANYA nama orang yang bersih. Jika pasien mengetik "nama saya burna kak", "namaku Budi Santoso", "atas nama Putri ya min", ekstrak HANYA nama orangnya saja: "Burna", "Budi Santoso", "Putri". DILARANG KERAS memasukkan kata "nama saya", "kak", "min", dsb. Jika tidak ada nama, kosongkan "".
 2. NOMOR HP: Ekstrak nomor HP HANYA jika pasien menyebutkan deretan angka telepon resmi (contoh: "08123456789"). DILARANG keras mengekstrak kalimat basa-basi seperti "nomor wa ini", "nomor ini", "pake nomor ini". Jika pasien menggunakan kalimat tersebut atau tidak menyebutkan angka, kembalikan nomor_hp sebagai string kosong "".
-3. TANGGAL BOOKING: Hitung dan konversikan kata relatif tanggal (seperti "besok", "lusa", "sabtu depan", "tanggal 15") berdasarkan referensi "Hari Ini: ${todayStr}". Formatkan menjadi string tanggal resmi yang rapi: "[Hari], [Tanggal] [Bulan] [Tahun]" (contoh: "Kamis, 15 Agustus 2026"). Jika pasien belum sebutkan tanggal, kembalikan "".
-4. JAM SLOT: Ekstrak jam kedatangan spesifik dalam format "HH:MM WIB" (contoh: "14:00 WIB", "10:30 WIB"). DILARANG mengarang frasa generik seperti "Sesuai Jadwal" atau "Terserah". Jika pasien belum sebutkan jam spesifik, kembalikan jam_booking sebagai string kosong "".
-5. TIKDAKAN GIGI: Cocokkan (fuzzy match) setiap tindakan gigi yang diminta dengan Nama Layanan dari Katalog resmi. Isi nama_layanan dan estimasi_harga (number). Hitung total_estimasi (number).
+3. TANGGAL BOOKING: Hitung dan konversikan kata relatif tanggal (seperti "besok", "besok sabtu", "sabtu besok", "lusa", "sabtu depan", "tanggal 15") berdasarkan referensi "Hari Ini: ${todayStr}". Formatkan menjadi string tanggal resmi yang rapi: "[Hari], [Tanggal] [Bulan] [Tahun]" (contoh: "Sabtu, 15 Agustus 2026"). Jika pasien belum sebutkan tanggal, kembalikan "".
+4. JAM SLOT: Ekstrak jam kedatangan dari kata pasien dan konversikan ke format 24 jam "HH:MM WIB":
+   - "jam 9" / "jam 9 pagi" -> "09:00 WIB"
+   - "jam 9 malam" / "jam 21" / "21.00" -> "21:00 WIB"
+   - "jam 2 siang" / "jam 14" / "14.00" -> "14:00 WIB"
+   - "jam 4 sore" / "jam 16" / "16.00" -> "16:00 WIB"
+   - "jam 7 malam" / "jam 19" / "19.00" / "19:00" -> "19:00 WIB"
+   - "10.30" / "10:30" -> "10:30 WIB"
+   Jika pasien menyebutkan jam berapa pun, WAJIB kamu ekstrak ke format "HH:MM WIB". DILARANG mengarang frasa generik seperti "Sesuai Jadwal". Jika pasien belum sebutkan jam, kembalikan "".
+5. TINDAKAN GIGI: Cocokkan (fuzzy match) setiap tindakan gigi yang diminta dengan Nama Layanan dari Katalog resmi. Isi nama_layanan dan estimasi_harga (number). Hitung total_estimasi (number).
 6. DOKTER PILIHAN: Ekstrak nama dokter gigi pilihan (contoh: "drg. Amanda"). Jika tidak ada, kembalikan "-".
 7. JIKA ada "Reservasi Aktif Saat Ini", gabungkan atau perbarui informasi baru tanpa menghapus data pasien/layanan yang sudah ada.
 
 Struktur JSON yang wajib kamu kembalikan:
-- nama_pasien (string, kosongkan "" jika belum disebutkan)
+- nama_pasien (string, bersih hanya nama orang, kosongkan "" jika belum ada)
 - nomor_hp (string, kosongkan "" jika belum berisi deretan angka telepon)
 - layanan_dipilih (array of object: 'nama_layanan', 'estimasi_harga')
 - tanggal_booking (string, format "[Hari], [Tanggal] [Bulan] [Tahun]", kosongkan "" jika belum ada)

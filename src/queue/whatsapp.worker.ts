@@ -1,7 +1,7 @@
 import { Worker, Job } from 'bullmq';
 import redisConnection from '../config/redis';
 import { WHATSAPP_QUEUE_NAME } from './whatsapp.queue';
-import { classifyIntent, extractBookingFromChat, answerInquiry } from '../services/ai.service';
+import { classifyIntent, extractBookingFromChat, answerInquiry, cleanPatientName } from '../services/ai.service';
 import { appendBookingToSheet, getCatalogFromSheet } from '../services/sheets.service';
 import { WhatsAppProviderFactory } from '../services/whatsapp-provider.service';
 import { sessionService, BookingSession } from '../services/session.service';
@@ -233,20 +233,31 @@ export const whatsappWorker = new Worker<ChatJobData>(
         return;
       }
 
-      const inputName = message.trim();
       if (session.booking) {
-        session.booking.nama_pasien = inputName;
-        session.booking.nomor_hp = sanitizePhoneNumber(session.booking.nomor_hp, cleanSenderPhone);
+        const extractedNew = await extractBookingFromChat(message, catalogContext, session.history, session.booking);
+        const cleanName = extractedNew.nama_pasien && extractedNew.nama_pasien.trim() !== ''
+          ? cleanPatientName(extractedNew.nama_pasien)
+          : cleanPatientName(message);
+
+        session.booking.nama_pasien = cleanName;
+        session.booking.nomor_hp = sanitizePhoneNumber(extractedNew.nomor_hp || session.booking.nomor_hp, cleanSenderPhone);
         
+        if (extractedNew.tanggal_booking && extractedNew.tanggal_booking.trim() !== '') {
+          session.booking.tanggal_booking = extractedNew.tanggal_booking;
+        }
+        if (extractedNew.jam_booking && extractedNew.jam_booking.trim() !== '') {
+          session.booking.jam_booking = extractedNew.jam_booking;
+        }
+
         const isDateMissing = !session.booking.tanggal_booking || session.booking.tanggal_booking.trim() === '' || session.booking.tanggal_booking.trim() === '-';
         const isTimeMissing = !session.booking.jam_booking || session.booking.jam_booking.trim() === '' || session.booking.jam_booking.trim() === '-' || session.booking.jam_booking.includes('Sesuai');
                                   
         if (isDateMissing || isTimeMissing) {
           session.step = 'AWAITING_DATE_TIME';
           if (isDateMissing) {
-            replyText = `🤖 Terima kasih Kak *${inputName}*! Selanjutnya, mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** yang Kakak inginkan untuk periksa gigi ya (contoh: *Besok jam 14:00 WIB* atau *Sabtu jam 10:00 WIB*). 😊`;
+            replyText = `🤖 Terima kasih Kak *${cleanName}*! Selanjutnya, mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** yang Kakak inginkan untuk periksa gigi ya (contoh: *Besok jam 14:00 WIB* atau *Sabtu jam 10:00 WIB*). 😊`;
           } else {
-            replyText = `🤖 Terima kasih Kak *${inputName}*! Untuk tanggal *${session.booking.tanggal_booking}*, Kakak ingin mengambil **Jam Slot** berapa? (Klinik kami buka 09:00 - 20:00 WIB, contoh: *14:00 WIB* atau *10:00 WIB*). 😊`;
+            replyText = `🤖 Terima kasih Kak *${cleanName}*! Untuk tanggal *${session.booking.tanggal_booking}*, Kakak ingin mengambil **Jam Slot** berapa? (Klinik kami buka 09:00 - 20:00 WIB, contoh: *14:00 WIB* atau *10:00 WIB*). 😊`;
           }
         } else {
           session.step = 'AWAITING_CONFIRMATION';
@@ -274,18 +285,43 @@ export const whatsappWorker = new Worker<ChatJobData>(
       if (session.booking) {
         const extractedNew = await extractBookingFromChat(message, catalogContext, session.history, session.booking);
         
-        session.booking.nama_pasien = session.booking.nama_pasien || extractedNew.nama_pasien || 'Pasien';
+        if (extractedNew.nama_pasien && extractedNew.nama_pasien.trim() !== '') {
+          session.booking.nama_pasien = cleanPatientName(extractedNew.nama_pasien);
+        }
         session.booking.nomor_hp = sanitizePhoneNumber(extractedNew.nomor_hp || session.booking.nomor_hp, cleanSenderPhone);
-        session.booking.tanggal_booking = extractedNew.tanggal_booking || session.booking.tanggal_booking || message.trim();
-        session.booking.jam_booking = extractedNew.jam_booking || session.booking.jam_booking || '';
         
-        const isTimeStillMissing = !session.booking.jam_booking || 
-                                   session.booking.jam_booking.trim() === '' || 
-                                   session.booking.jam_booking.trim() === '-' || 
-                                   session.booking.jam_booking.includes('Sesuai');
+        if (extractedNew.tanggal_booking && extractedNew.tanggal_booking.trim() !== '') {
+          session.booking.tanggal_booking = extractedNew.tanggal_booking;
+        }
+        if (extractedNew.jam_booking && extractedNew.jam_booking.trim() !== '') {
+          session.booking.jam_booking = extractedNew.jam_booking;
+        }
 
-        if (isTimeStillMissing) {
-          replyText = `🤖 Terima kasih Kak *${session.booking.nama_pasien}*! Untuk tanggal *${session.booking.tanggal_booking}*, Kakak ingin mengambil **Jam Slot** berapa? (Klinik kami buka 09:00 - 20:00 WIB, contoh: *14:00 WIB* atau *10:00 WIB*). 😊`;
+        // VALIDASI JAM OPERASIONAL KLINIK (09:00 - 20:00 WIB)
+        if (session.booking.jam_booking && session.booking.jam_booking.trim() !== '') {
+          const hourMatch = session.booking.jam_booking.match(/^(\d{1,2}):/);
+          if (hourMatch) {
+            const hour = parseInt(hourMatch[1], 10);
+            if (hour < 9 || hour > 20) {
+              replyText = `🤖 Maaf Kak *${session.booking.nama_pasien}*, klinik kami beroperasi pada pukul **09:00 - 20:00 WIB**. Untuk jam *${session.booking.jam_booking}* klinik sudah tutup ya. Apakah Kakak bersedia di jam operasional kami, misalnya jam *19:00 WIB* (malam) atau jam *10:00 WIB* (pagi)? 😊`;
+              session.booking.jam_booking = ''; // reset agar pasien memilih slot valid
+              await whatsappProvider.sendMessage(sender, replyText);
+              session.history.push({ role: 'assistant', content: replyText });
+              await sessionService.setSession(sender, session);
+              return;
+            }
+          }
+        }
+
+        const isDateMissing = !session.booking.tanggal_booking || session.booking.tanggal_booking.trim() === '' || session.booking.tanggal_booking.trim() === '-';
+        const isTimeMissing = !session.booking.jam_booking || session.booking.jam_booking.trim() === '' || session.booking.jam_booking.trim() === '-' || session.booking.jam_booking.includes('Sesuai');
+
+        if (isDateMissing || isTimeMissing) {
+          if (isDateMissing) {
+            replyText = `🤖 Terima kasih Kak *${session.booking.nama_pasien}*! Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** yang Kakak inginkan ya (contoh: *Besok jam 14:00 WIB*). 😊`;
+          } else {
+            replyText = `🤖 Terima kasih Kak *${session.booking.nama_pasien}*! Untuk tanggal *${session.booking.tanggal_booking}*, Kakak ingin mengambil **Jam Slot** berapa? (Klinik kami buka 09:00 - 20:00 WIB, contoh: *14:00 WIB* atau *10:00 WIB*). 😊`;
+          }
         } else {
           session.step = 'AWAITING_CONFIRMATION';
           replyText = renderBookingRecap(session.booking, cleanSenderPhone);
