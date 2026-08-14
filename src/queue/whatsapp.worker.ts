@@ -91,7 +91,8 @@ export const whatsappWorker = new Worker<ChatJobData>(
         let patientSession = await sessionService.getSession(targetPhone);
         if (patientSession) {
           patientSession.history.push({ role: 'assistant', content: adminReplyText });
-          await sessionService.setSession(targetPhone, patientSession);
+          // Refresh waktu tunggu Handoff selama 30 menit (1800 detik) setiap kali admin membalas
+          await sessionService.setSession(targetPhone, patientSession, 1800);
         }
 
         replyText = `✅ *Pesan Berhasil Terkirim!*\n\n📲 *Penerima:* ${targetPhone}\n💬 *Pesan Admin:* "${adminReplyText}"`;
@@ -130,24 +131,36 @@ export const whatsappWorker = new Worker<ChatJobData>(
     }
 
     // ------------------------------------------------------------------------
-    // 1. JIKA PASIEN DALAM MODE HANDOFF_ADMIN (BOT SILENT MODE)
-    // ------------------------------------------------------------------------
-    if (session.step === 'HANDOFF_ADMIN') {
-      console.log(`ℹ️ [Worker] Mengabaikan pesan dari ${sender} karena sesi sedang dalam mode HANDOFF_ADMIN.`);
-      
-      if (env.ADMIN_WA_NUMBER && env.ADMIN_WA_NUMBER.trim() !== '') {
-        const patientName = session.booking?.nama_pasien || 'Pasien';
-        const adminAlertText = `💬 *[PESAN BARU PASIEN HANDOFF]*\n\n👤 *Pasien:* ${patientName} (${cleanSenderPhone})\n💬 *Pesan:* "${message}"\n\n*Balas via WA:* \`!balas ${cleanSenderPhone} <pesan_anda>\``;
-        await whatsappProvider.sendMessage(env.ADMIN_WA_NUMBER, adminAlertText);
-      }
-      return;
-    }
-
-    // ------------------------------------------------------------------------
-    // 2. KLASIFIKASI NIAT CHAT
+    // 1. KLASIFIKASI NIAT CHAT (DILAKUKAN DIAWAL UNTUK CEK REAKTIVASI OTOMATIS)
     // ------------------------------------------------------------------------
     const intent = await classifyIntent(message, session.history);
     console.log(`👷 [Worker] Niat terdeteksi: ${intent.toUpperCase()}`);
+
+    // ------------------------------------------------------------------------
+    // 2. LOGIKA AUTO-REACTIVATION & SILENT MODE (HANDOFF_ADMIN)
+    // ------------------------------------------------------------------------
+    if (session.step === 'HANDOFF_ADMIN') {
+      // JIKA PASIEN DI HANDOFF INGIN MEMULAI BOOKING BARU ATAU BATALKAN:
+      // AI Otomatis Mengambil Alih Kembali (Auto-Reactivation) tanpa perlu !bot-on!
+      if (intent === 'BOOKING' || intent === 'CANCEL') {
+        console.log(`🤖 [Worker] Auto-Reactivation: Pasien ${sender} memulai niat ${intent}. Bot AI otomatis aktif kembali!`);
+        session.step = 'IDLE';
+        session.booking = undefined;
+      } else {
+        // Jika masih percakapan biasa/keluhan, bot tetap hening dan teruskan ke WA Admin
+        console.log(`ℹ️ [Worker] Mengabaikan pesan dari ${sender} karena sesi sedang dalam mode HANDOFF_ADMIN.`);
+        
+        // Refresh TTL Inactivity 30 menit
+        await sessionService.setSession(sender, session, 1800);
+
+        if (env.ADMIN_WA_NUMBER && env.ADMIN_WA_NUMBER.trim() !== '') {
+          const patientName = session.booking?.nama_pasien || 'Pasien';
+          const adminAlertText = `💬 *[PESAN BARU PASIEN HANDOFF]*\n\n👤 *Pasien:* ${patientName} (${cleanSenderPhone})\n💬 *Pesan:* "${message}"\n\n*Balas via WA:* \`!balas ${cleanSenderPhone} <pesan_anda>\``;
+          await whatsappProvider.sendMessage(env.ADMIN_WA_NUMBER, adminAlertText);
+        }
+        return;
+      }
+    }
 
     const catalog = await getCatalogFromSheet();
     const catalogContext = catalog
@@ -164,7 +177,8 @@ export const whatsappWorker = new Worker<ChatJobData>(
       await whatsappProvider.sendMessage(sender, replyText);
       session.history.push({ role: 'assistant', content: replyText });
       
-      await sessionService.setSession(sender, session, 7200);
+      // Simpan sesi HANDOFF_ADMIN dengan Inactivity Timeout 30 menit (1800 detik)
+      await sessionService.setSession(sender, session, 1800);
 
       if (env.ADMIN_WA_NUMBER && env.ADMIN_WA_NUMBER.trim() !== '') {
         const patientName = session.booking?.nama_pasien || 'Pasien';
