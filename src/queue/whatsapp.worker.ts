@@ -16,13 +16,27 @@ interface ChatJobData {
 // Inisialisasi WhatsApp Provider dari Factory
 const whatsappProvider = WhatsAppProviderFactory.getProvider();
 
+// Helper untuk menyanitasi nomor HP pasien (memastikan berupa deretan angka WA pengirim asli)
+const sanitizePhoneNumber = (extractedPhone: string | undefined, senderPhone: string): string => {
+  if (!extractedPhone || extractedPhone.trim() === '') return senderPhone;
+  const digitsOnly = extractedPhone.replace(/[^0-9]/g, '');
+  const lower = extractedPhone.toLowerCase();
+  if (digitsOnly.length < 8 || lower.includes('nomor') || lower.includes('wa') || lower.includes('pake')) {
+    return senderPhone;
+  }
+  return digitsOnly;
+};
+
 // Helper untuk menyusun teks Kartu Reservasi Klinik Gigi
 const renderBookingRecap = (booking: any, cleanSenderPhone: string): string => {
+  const validPhone = sanitizePhoneNumber(booking.nomor_hp, cleanSenderPhone);
+  booking.nomor_hp = validPhone;
+
   const treatmentDetailsStr = booking.layanan_dipilih
     .map((p: any) => `- *${p.nama_layanan}*: Rp${p.estimasi_harga.toLocaleString('id-ID')}`)
     .join('\n');
 
-  return `🤖 *📋 KARTU RESERVASI KLINIK GIGI* \n\nBerikut rincian jadwal janji temu pemeriksaan gigi Kakak:\n\n- *Nama Pasien:* ${booking.nama_pasien || 'Pasien'}\n- *Nomor HP:* ${booking.nomor_hp || cleanSenderPhone}\n- *Tanggal Booking:* ${booking.tanggal_booking || '-'}\n- *Jam Slot:* ${booking.jam_booking || '-'}\n- *Dokter Gigi Pilihan:* ${booking.dokter_pilihan || '-'}\n\n*Tindakan Gigi Dipilih:*\n${treatmentDetailsStr}\n\n*💰 Total Estimasi Biaya:* *Rp${booking.total_estimasi.toLocaleString('id-ID')}*\n\nApakah jadwal reservasi periksa gigi di atas sudah sesuai? (Ketik **Ya** untuk konfirmasi, atau ketik jika ada perubahan/tambahan). 😊`;
+  return `🤖 *📋 KARTU RESERVASI KLINIK GIGI* \n\nBerikut rincian jadwal janji temu pemeriksaan gigi Kakak:\n\n- *Nama Pasien:* ${booking.nama_pasien || 'Pasien'}\n- *Nomor WA:* ${validPhone}\n- *Tanggal Booking:* ${booking.tanggal_booking || '-'}\n- *Jam Slot:* ${booking.jam_booking || '-'}\n- *Dokter Gigi Pilihan:* ${booking.dokter_pilihan || '-'}\n\n*Tindakan Gigi Dipilih:*\n${treatmentDetailsStr}\n\n*💰 Total Estimasi Biaya:* *Rp${booking.total_estimasi.toLocaleString('id-ID')}*\n\nApakah jadwal reservasi periksa gigi di atas sudah sesuai? (Ketik **Ya** untuk konfirmasi, atau ketik jika ada perubahan/tambahan). 😊`;
 };
 
 // Inisialisasi Worker BullMQ (Consumer)
@@ -72,17 +86,14 @@ export const whatsappWorker = new Worker<ChatJobData>(
 
         console.log(`👷 [Worker] Admin ${sender} membalas ke pasien ${targetPhone}: "${adminReplyText}"`);
         
-        // Kirim balasan admin langsung ke WhatsApp Pasien
         await whatsappProvider.sendMessage(targetPhone, adminReplyText);
 
-        // Update history di sesi pasien
         let patientSession = await sessionService.getSession(targetPhone);
         if (patientSession) {
           patientSession.history.push({ role: 'assistant', content: adminReplyText });
           await sessionService.setSession(targetPhone, patientSession);
         }
 
-        // Kirim konfirmasi balik ke WA Admin
         replyText = `✅ *Pesan Berhasil Terkirim!*\n\n📲 *Penerima:* ${targetPhone}\n💬 *Pesan Admin:* "${adminReplyText}"`;
         await whatsappProvider.sendMessage(sender, replyText);
         return;
@@ -93,7 +104,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
       }
     }
 
-    // B. PERINTAH ADMIN: !bot-on <nomor_pasien> ATAU !bot-on (untuk pasien sendiri)
+    // B. PERINTAH ADMIN: !bot-on <nomor_pasien> ATAU !bot-on
     if (cleanMessageLower.startsWith('!bot-on') || cleanMessageLower.startsWith('!reset') || cleanMessageLower.startsWith('!aktif')) {
       const parts = cleanMessageTrim.split(/\s+/);
       const targetPhone = parts.length >= 2 ? parts[1].replace(/[^0-9]/g, '') : sender;
@@ -108,11 +119,9 @@ export const whatsappWorker = new Worker<ChatJobData>(
       targetSession.booking = undefined;
       await sessionService.setSession(targetPhone, targetSession);
 
-      // Kirim notifikasi ke pasien bahwa bot aktif kembali
       const patientNotification = `🤖 *Bot AI Klinik Gigi Telah Aktif Kembali!* \n\nHalo Kak! Bot AI kami siap melayani pertanyaan tarif, informasi dokter gigi, dan reservasi periksa gigi Kakak 24/7. Ada yang bisa kami bantu? 😊`;
       await whatsappProvider.sendMessage(targetPhone, patientNotification);
 
-      // Jika perintah dikirim dari WA Admin, kirim konfirmasi ke Admin
       if (targetPhone !== sender) {
         replyText = `✅ *Bot AI Berhasil Diaktifkan Kembali!*\n\n📲 *Nomor Pasien:* ${targetPhone}`;
         await whatsappProvider.sendMessage(sender, replyText);
@@ -126,7 +135,6 @@ export const whatsappWorker = new Worker<ChatJobData>(
     if (session.step === 'HANDOFF_ADMIN') {
       console.log(`ℹ️ [Worker] Mengabaikan pesan dari ${sender} karena sesi sedang dalam mode HANDOFF_ADMIN.`);
       
-      // Jika ADMIN_WA_NUMBER diisi di .env, teruskan pesan baru dari pasien ini ke WA Admin secara otomatis
       if (env.ADMIN_WA_NUMBER && env.ADMIN_WA_NUMBER.trim() !== '') {
         const patientName = session.booking?.nama_pasien || 'Pasien';
         const adminAlertText = `💬 *[PESAN BARU PASIEN HANDOFF]*\n\n👤 *Pasien:* ${patientName} (${cleanSenderPhone})\n💬 *Pesan:* "${message}"\n\n*Balas via WA:* \`!balas ${cleanSenderPhone} <pesan_anda>\``;
@@ -141,7 +149,6 @@ export const whatsappWorker = new Worker<ChatJobData>(
     const intent = await classifyIntent(message, session.history);
     console.log(`👷 [Worker] Niat terdeteksi: ${intent.toUpperCase()}`);
 
-    // Ambil data katalog perawatan gigi aktif dari Google Sheets
     const catalog = await getCatalogFromSheet();
     const catalogContext = catalog
       .map((item) => `- ${item.nama} (Tarif: Rp${item.harga.toLocaleString('id-ID')}, Durasi: ${item.durasi || '45m'}, Dokter Gigi: ${item.dokter || 'Tim Dokter Gigi'})`)
@@ -157,10 +164,8 @@ export const whatsappWorker = new Worker<ChatJobData>(
       await whatsappProvider.sendMessage(sender, replyText);
       session.history.push({ role: 'assistant', content: replyText });
       
-      // Simpan sesi HANDOFF_ADMIN dengan TTL 2 jam (7200 detik)
       await sessionService.setSession(sender, session, 7200);
 
-      // TERUSKAN ALERT NOTIFIKASI KE NOMOR WHATSAPP ADMIN KLINIK (Jika ADMIN_WA_NUMBER diisi)
       if (env.ADMIN_WA_NUMBER && env.ADMIN_WA_NUMBER.trim() !== '') {
         const patientName = session.booking?.nama_pasien || 'Pasien';
         const adminAlertMessage = `🚨 *[ALERT PASIEN HANDOFF KLINIK GIGI]*\n\n👤 *Pasien:* ${patientName} (${cleanSenderPhone})\n💬 *Pesan Pasien:* "${message}"\n\n💬 *Cara Balas dari WA:* \n\`!balas ${cleanSenderPhone} <pesan_anda>\` \n\n🤖 *Cara Aktifkan Bot Kembali:* \n\`!bot-on ${cleanSenderPhone}\``;
@@ -203,14 +208,18 @@ export const whatsappWorker = new Worker<ChatJobData>(
       const inputName = message.trim();
       if (session.booking) {
         session.booking.nama_pasien = inputName;
+        session.booking.nomor_hp = sanitizePhoneNumber(session.booking.nomor_hp, cleanSenderPhone);
         
-        const isDateTimeMissing = !session.booking.tanggal_booking || 
-                                  session.booking.tanggal_booking.trim() === '-' || 
-                                  session.booking.tanggal_booking.trim() === '';
+        const isDateMissing = !session.booking.tanggal_booking || session.booking.tanggal_booking.trim() === '' || session.booking.tanggal_booking.trim() === '-';
+        const isTimeMissing = !session.booking.jam_booking || session.booking.jam_booking.trim() === '' || session.booking.jam_booking.trim() === '-' || session.booking.jam_booking.includes('Sesuai');
                                   
-        if (isDateTimeMissing) {
+        if (isDateMissing || isTimeMissing) {
           session.step = 'AWAITING_DATE_TIME';
-          replyText = `🤖 Terima kasih Kak *${inputName}*! Selanjutnya, mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** yang Kakak inginkan untuk periksa gigi ya. 😊`;
+          if (isDateMissing) {
+            replyText = `🤖 Terima kasih Kak *${inputName}*! Selanjutnya, mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** yang Kakak inginkan untuk periksa gigi ya (contoh: *Besok jam 14:00 WIB* atau *Sabtu jam 10:00 WIB*). 😊`;
+          } else {
+            replyText = `🤖 Terima kasih Kak *${inputName}*! Untuk tanggal *${session.booking.tanggal_booking}*, Kakak ingin mengambil **Jam Slot** berapa? (Klinik kami buka 09:00 - 20:00 WIB, contoh: *14:00 WIB* atau *10:00 WIB*). 😊`;
+          }
         } else {
           session.step = 'AWAITING_CONFIRMATION';
           replyText = renderBookingRecap(session.booking, cleanSenderPhone);
@@ -233,14 +242,26 @@ export const whatsappWorker = new Worker<ChatJobData>(
         return;
       }
 
-      const inputDateTime = message.trim();
+      // Gunakan AI untuk ekstraksi presisi tanggal/jam dari pesan baru pasien
       if (session.booking) {
-        session.booking.tanggal_booking = inputDateTime;
-        session.booking.jam_booking = session.booking.jam_booking || 'Sesuai Jadwal';
-        session.booking.nomor_hp = session.booking.nomor_hp || cleanSenderPhone;
+        const extractedNew = await extractBookingFromChat(message, catalogContext, session.history, session.booking);
         
-        session.step = 'AWAITING_CONFIRMATION';
-        replyText = renderBookingRecap(session.booking, cleanSenderPhone);
+        session.booking.nama_pasien = session.booking.nama_pasien || extractedNew.nama_pasien || 'Pasien';
+        session.booking.nomor_hp = sanitizePhoneNumber(extractedNew.nomor_hp || session.booking.nomor_hp, cleanSenderPhone);
+        session.booking.tanggal_booking = extractedNew.tanggal_booking || session.booking.tanggal_booking || message.trim();
+        session.booking.jam_booking = extractedNew.jam_booking || session.booking.jam_booking || '';
+        
+        const isTimeStillMissing = !session.booking.jam_booking || 
+                                   session.booking.jam_booking.trim() === '' || 
+                                   session.booking.jam_booking.trim() === '-' || 
+                                   session.booking.jam_booking.includes('Sesuai');
+
+        if (isTimeStillMissing) {
+          replyText = `🤖 Terima kasih Kak *${session.booking.nama_pasien}*! Untuk tanggal *${session.booking.tanggal_booking}*, Kakak ingin mengambil **Jam Slot** berapa? (Klinik kami buka 09:00 - 20:00 WIB, contoh: *14:00 WIB* atau *10:00 WIB*). 😊`;
+        } else {
+          session.step = 'AWAITING_CONFIRMATION';
+          replyText = renderBookingRecap(session.booking, cleanSenderPhone);
+        }
         
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
@@ -253,6 +274,8 @@ export const whatsappWorker = new Worker<ChatJobData>(
     if (session.step === 'AWAITING_CONFIRMATION') {
       if (intent === 'CONFIRM') {
         if (session.booking) {
+          session.booking.nomor_hp = sanitizePhoneNumber(session.booking.nomor_hp, cleanSenderPhone);
+          
           console.log(`📊 [Sheets Service] Menulis data reservasi klinik gigi ke Google Sheets...`);
           await appendBookingToSheet(session.booking);
           
@@ -274,6 +297,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
         const updatedBooking = await extractBookingFromChat(message, catalogContext, session.history, session.booking);
         
         if (updatedBooking && updatedBooking.layanan_dipilih && updatedBooking.layanan_dipilih.length > 0) {
+          updatedBooking.nomor_hp = sanitizePhoneNumber(updatedBooking.nomor_hp, cleanSenderPhone);
           session.booking = updatedBooking;
           replyText = renderBookingRecap(session.booking, cleanSenderPhone);
         } else {
@@ -311,23 +335,32 @@ export const whatsappWorker = new Worker<ChatJobData>(
           return;
         }
 
-        extractedBooking.nomor_hp = extractedBooking.nomor_hp || cleanSenderPhone;
+        extractedBooking.nomor_hp = sanitizePhoneNumber(extractedBooking.nomor_hp, cleanSenderPhone);
         session.booking = extractedBooking;
 
         const isNameMissing = !extractedBooking.nama_pasien || 
                               extractedBooking.nama_pasien.trim() === '-' || 
                               extractedBooking.nama_pasien.trim() === '';
                               
-        const isDateTimeMissing = !extractedBooking.tanggal_booking || 
-                                  extractedBooking.tanggal_booking.trim() === '-' || 
-                                  extractedBooking.tanggal_booking.trim() === '';
+        const isDateMissing = !extractedBooking.tanggal_booking || 
+                              extractedBooking.tanggal_booking.trim() === '-' || 
+                              extractedBooking.tanggal_booking.trim() === '';
+
+        const isTimeMissing = !extractedBooking.jam_booking || 
+                              extractedBooking.jam_booking.trim() === '-' || 
+                              extractedBooking.jam_booking.trim() === '' ||
+                              extractedBooking.jam_booking.includes('Sesuai');
 
         if (isNameMissing) {
           session.step = 'AWAITING_NAME';
           replyText = `🤖 Terima kasih! Mohon infokan **Nama Lengkap Pasien** Kakak ya agar reservasi periksa gigi bisa kami catat. 😊`;
-        } else if (isDateTimeMissing) {
+        } else if (isDateMissing || isTimeMissing) {
           session.step = 'AWAITING_DATE_TIME';
-          replyText = `🤖 Terima kasih Kak *${extractedBooking.nama_pasien}*! Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak ya agar kami jadwalkan dokter giginya. 😊`;
+          if (isDateMissing) {
+            replyText = `🤖 Terima kasih Kak *${extractedBooking.nama_pasien}*! Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak ya agar kami jadwalkan dokter giginya (contoh: *Besok jam 14:00 WIB*). 😊`;
+          } else {
+            replyText = `🤖 Terima kasih Kak *${extractedBooking.nama_pasien}*! Untuk tanggal *${extractedBooking.tanggal_booking}*, Kakak ingin mengambil **Jam Slot** berapa? (Klinik kami buka 09:00 - 20:00 WIB, contoh: *14:00 WIB* atau *10:00 WIB*). 😊`;
+          }
         } else {
           session.step = 'AWAITING_CONFIRMATION';
           replyText = renderBookingRecap(extractedBooking, cleanSenderPhone);

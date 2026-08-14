@@ -151,35 +151,43 @@ export const extractBookingFromChat = async (
   currentBooking?: ExtractedBooking
 ): Promise<ExtractedBooking> => {
   try {
+    const todayStr = new Date().toLocaleDateString('id-ID', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'Asia/Jakarta',
+    });
+
     const currentBookingContext = currentBooking && currentBooking.layanan_dipilih.length > 0
       ? `\nReservasi Aktif Saat Ini yang Sedang Berjalan:\n${JSON.stringify(currentBooking, null, 2)}\n`
       : '';
 
-    const systemPrompt = `Kamu adalah sistem AI ekstraksi data reservasi untuk Klinik Gigi (Dental Clinic). Tugasmu adalah mengekstrak chat pendaftaran pasien menjadi data JSON yang bersih, terstruktur, dan tervalidasi terhadap Katalog Tindakan Gigi resmi.
+    const systemPrompt = `Kamu adalah sistem AI ekstraksi data reservasi presisi tinggi untuk Klinik Gigi (Dental Clinic). Tugasmu adalah mengekstrak chat pendaftaran pasien menjadi data JSON yang bersih, terstruktur, dan tervalidasi terhadap Katalog Tindakan Gigi resmi.
+
+Hari Ini: ${todayStr}
 
 Katalog Tindakan Gigi Resmi:
 ${catalogContext}
 ${currentBookingContext}
 
-Tugasmu:
-1. Ekstrak nama pasien, nomor HP (jika disebutkan), daftar tindakan gigi yang dipilih (seperti scaling, tambal gigi, bleaching, behel, cabut gigi), tanggal booking/kedatangan, jam slot kedatangan, dan nama dokter gigi pilihan (drg) jika disebutkan.
-2. Setiap tindakan yang dipilih pasien wajib dicocokkan (fuzzy match) dengan Nama Layanan yang ada di Katalog Tindakan Gigi Resmi di atas.
-3. Untuk setiap layanan yang cocok, isi:
-   - nama_layanan: Gunakan Nama Layanan resmi dari Katalog.
-   - estimasi_harga: Harga resmi dari Katalog (harus angka/number).
-4. Hitung total_estimasi: Jumlah akumulasi harga dari seluruh layanan yang dipilih (harus angka/number).
-5. JIKA pasien menyebutkan tanggal/jam kedatangan (contoh: "besok jam 2 siang", "sabtu jam 10 pagi", "tanggal 12 jam 14.00"), ekstrak menjadi string tanggal_booking dan jam_booking yang rapi (contoh: tanggal_booking: "Sabtu, 10 Agustus", jam_booking: "14:00 WIB").
-6. JIKA pasien TIDAK menyebutkan perawatan gigi secara jelas, kembalikan array 'layanan_dipilih' kosong [] dan total_estimasi 0.
-7. JIKA ada "Reservasi Aktif Saat Ini", gabungkan atau perbarui informasi baru tanpa menghapus data pasien/layanan yang sudah ada kecuali diminta diubah oleh pasien.
+Tugas & Aturan Ekstraksi Presisi:
+1. Ekstrak nama pasien, nomor HP, daftar tindakan gigi, tanggal booking, jam slot kedatangan, dan nama dokter gigi (drg).
+2. NOMOR HP: Ekstrak nomor HP HANYA jika pasien menyebutkan deretan angka telepon resmi (contoh: "08123456789"). DILARANG keras mengekstrak kalimat basa-basi seperti "nomor wa ini", "nomor ini", "pake nomor ini". Jika pasien menggunakan kalimat tersebut atau tidak menyebutkan angka, kembalikan nomor_hp sebagai string kosong "".
+3. TANGGAL BOOKING: Hitung dan konversikan kata relatif tanggal (seperti "besok", "lusa", "sabtu depan", "tanggal 15") berdasarkan referensi "Hari Ini: ${todayStr}". Formatkan menjadi string tanggal resmi yang rapi: "[Hari], [Tanggal] [Bulan] [Tahun]" (contoh: "Kamis, 15 Agustus 2026"). Jika pasien belum sebutkan tanggal, kembalikan "".
+4. JAM SLOT: Ekstrak jam kedatangan spesifik dalam format "HH:MM WIB" (contoh: "14:00 WIB", "10:30 WIB"). DILARANG mengarang frasa generik seperti "Sesuai Jadwal" atau "Terserah". Jika pasien belum sebutkan jam spesifik, kembalikan jam_booking sebagai string kosong "".
+5. TIKDAKAN GIGI: Cocokkan (fuzzy match) setiap tindakan gigi yang diminta dengan Nama Layanan dari Katalog resmi. Isi nama_layanan dan estimasi_harga (number). Hitung total_estimasi (number).
+6. DOKTER PILIHAN: Ekstrak nama dokter gigi pilihan (contoh: "drg. Amanda"). Jika tidak ada, kembalikan "-".
+7. JIKA ada "Reservasi Aktif Saat Ini", gabungkan atau perbarui informasi baru tanpa menghapus data pasien/layanan yang sudah ada.
 
 Struktur JSON yang wajib kamu kembalikan:
 - nama_pasien (string, kosongkan "" jika belum disebutkan)
-- nomor_hp (string, kosongkan "" jika belum disebutkan)
+- nomor_hp (string, kosongkan "" jika belum berisi deretan angka telepon)
 - layanan_dipilih (array of object: 'nama_layanan', 'estimasi_harga')
-- tanggal_booking (string, kosongkan "" jika belum disebutkan)
-- jam_booking (string, kosongkan "" jika belum disebutkan)
-- dokter_pilihan (string, contoh: "drg. Amanda", kosongkan "-" jika tidak memilih dokter khusus)
-- total_estimasi (number, jumlah dari seluruh estimasi harga)
+- tanggal_booking (string, format "[Hari], [Tanggal] [Bulan] [Tahun]", kosongkan "" jika belum ada)
+- jam_booking (string, format "HH:MM WIB", kosongkan "" jika belum ada jam spesifik)
+- dokter_pilihan (string, contoh: "drg. Amanda", kosongkan "-" jika tidak ada)
+- total_estimasi (number, akumulasi estimasi harga)
 
 Kamu WAJIB mengembalikan respon HANYA berupa objek JSON mentah yang valid, tanpa teks basa-basi, tanpa tanda backticks (\`\`\`json), dan tanpa penjelasan apa pun.`;
 
