@@ -1,18 +1,18 @@
 /**
- * Google Apps Script Endpoint untuk Dental Clinic AI Booking Assistant
+ * Google Apps Script Endpoint untuk Beauty & Aesthetic Clinic AI Booking Assistant
  * 
  * CARA MEMASANG:
- * 1. Buka Google Spreadsheet Klinik Gigi Anda.
+ * 1. Buka Google Spreadsheet Klinik Kecantikan Anda.
  * 2. Klik menu 'Extensions' (Ekstensi) > 'Apps Script'.
  * 3. Hapus semua kode bawaan, lalu tempelkan (paste) seluruh kode ini.
  * 4. Klik tombol 'Deploy' (Terapkan) > 'New deployment' (Penerapan baru).
  * 5. Pilih jenis: 'Web app' (Aplikasi Web).
  * 6. Ubah pengaturan:
- *    - Description: Dental Clinic AI Endpoint
+ *    - Description: Beauty & Aesthetic Clinic AI Endpoint
  *    - Execute as: Me (Email Anda)
  *    - Who has access: Anyone (Siapa Saja)
- * 7. Klik 'Deploy', lalu salin 'Web App URL' yang dihasilkan.
- * 8. Tempelkan URL tersebut di file .env Anda:
+ *    - Klik 'Deploy', lalu salin 'Web App URL' yang dihasilkan.
+ * 7. Tempelkan URL tersebut di file .env Anda:
  *    GOOGLE_SHEETS_WEBAPP_URL=https://script.google.com/macros/s/xxxxxx/exec
  */
 
@@ -47,8 +47,8 @@ function doGet(e) {
             nama: row[0].toString().trim(),
             harga: parseInt(row[1].toString().replace(/[^0-9]/g, "") || "0", 10),
             durasi: row[2] ? row[2].toString().trim() : "45 menit",
-            dokter: row[3] ? row[3].toString().trim() : "Tim Dokter Gigi",
-            kategori: row[4] ? row[4].toString().trim() : "Dental"
+            dokter: row[3] ? row[3].toString().trim() : "Tim Dokter Estetika",
+            kategori: row[4] ? row[4].toString().trim() : "Aesthetic & Skincare"
           });
         }
       }
