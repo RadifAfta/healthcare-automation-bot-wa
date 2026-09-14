@@ -27,7 +27,7 @@ const sanitizePhoneNumber = (extractedPhone: string | undefined, senderPhone: st
   return digitsOnly;
 };
 
-// Helper untuk menyusun teks Kartu Reservasi Klinik Gigi
+// Helper untuk menyusun teks Kartu Reservasi Klinik Kecantikan & Estetika
 const renderBookingRecap = (booking: any, cleanSenderPhone: string): string => {
   const validPhone = sanitizePhoneNumber(booking.nomor_hp, cleanSenderPhone);
   booking.nomor_hp = validPhone;
@@ -36,7 +36,7 @@ const renderBookingRecap = (booking: any, cleanSenderPhone: string): string => {
     .map((p: any) => `- *${p.nama_layanan}*: Rp${p.estimasi_harga.toLocaleString('id-ID')}`)
     .join('\n');
 
-  return `🤖 *📋 KARTU RESERVASI KLINIK GIGI* \n\nBerikut rincian jadwal janji temu pemeriksaan gigi Kakak:\n\n- *Nama Pasien:* ${booking.nama_pasien || 'Pasien'}\n- *Nomor WA:* ${validPhone}\n- *Tanggal Booking:* ${booking.tanggal_booking || '-'}\n- *Jam Slot:* ${booking.jam_booking || '-'}\n- *Dokter Gigi Pilihan:* ${booking.dokter_pilihan || '-'}\n\n*Tindakan Gigi Dipilih:*\n${treatmentDetailsStr}\n\n*💰 Total Estimasi Biaya:* *Rp${booking.total_estimasi.toLocaleString('id-ID')}*\n\nApakah jadwal reservasi periksa gigi di atas sudah sesuai? (Ketik **Ya** untuk konfirmasi, atau ketik jika ada perubahan/tambahan). 😊`;
+  return `🤖 *📋 KARTU RESERVASI KLINIK KECANTIKAN & ESTETIKA* \n\nBerikut rincian jadwal janji temu perawatan kecantikan Kakak:\n\n- *Nama Pasien/Klien:* ${booking.nama_pasien || 'Pasien'}\n- *Nomor WA:* ${validPhone}\n- *Tanggal Booking:* ${booking.tanggal_booking || '-'}\n- *Jam Slot:* ${booking.jam_booking || '-'}\n- *Dokter / Terapis Estetika:* ${booking.dokter_pilihan || '-'}\n\n*Treatment Kecantikan Dipilih:*\n${treatmentDetailsStr}\n\n*💰 Total Estimasi Biaya:* *Rp${booking.total_estimasi.toLocaleString('id-ID')}*\n\nApakah jadwal reservasi perawatan di atas sudah sesuai? (Ketik **Ya** untuk konfirmasi, atau ketik jika ada perubahan/tambahan). 😊✨`;
 };
 
 // Inisialisasi Worker BullMQ (Consumer)
@@ -99,7 +99,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
         await whatsappProvider.sendMessage(sender, replyText);
         return;
       } else {
-        replyText = `⚠️ *Format Perintah Balas Salah!*\n\nGunakan format: \`!balas <nomor_pasien> <pesan_admin>\`\n*Contoh:* \`!balas 6282245480975 Halo Pak, ada yang bisa dibantu?\``;
+        replyText = `⚠️ *Format Perintah Balas Salah!*\n\nGunakan format: \`!balas <nomor_pasien> <pesan_admin>\`\n*Contoh:* \`!balas 6282245480975 Halo Kak, ada yang bisa dibantu?\``;
         await whatsappProvider.sendMessage(sender, replyText);
         return;
       }
@@ -120,7 +120,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
       targetSession.booking = undefined;
       await sessionService.setSession(targetPhone, targetSession);
 
-      const patientNotification = `🤖 *Bot AI Klinik Gigi Telah Aktif Kembali!* \n\nHalo Kak! Bot AI kami siap melayani pertanyaan tarif, informasi dokter gigi, dan reservasi periksa gigi Kakak 24/7. Ada yang bisa kami bantu? 😊`;
+      const patientNotification = `🤖 *Bot AI Klinik Kecantikan Telah Aktif Kembali!* \n\nHalo Kak! Bot AI kami siap melayani informasi treatment, konsultasi tarif, jadwal dokter estetika, dan reservasi perawatan Kakak 24/7. Ada yang bisa kami bantu? 😊✨`;
       await whatsappProvider.sendMessage(targetPhone, patientNotification);
 
       if (targetPhone !== sender) {
@@ -164,7 +164,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
 
     const catalog = await getCatalogFromSheet();
     const catalogContext = catalog
-      .map((item) => `- ${item.nama} (Tarif: Rp${item.harga.toLocaleString('id-ID')}, Durasi: ${item.durasi || '45m'}, Dokter Gigi: ${item.dokter || 'Tim Dokter Gigi'})`)
+      .map((item) => `- ${item.nama} (Tarif: Rp${item.harga.toLocaleString('id-ID')}, Durasi: ${item.durasi || '45m'}, Dokter: ${item.dokter || 'Tim Dokter Estetika'})`)
       .join('\n');
 
     // ------------------------------------------------------------------------
@@ -173,7 +173,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
     if (intent === 'TALK_TO_HUMAN' || intent === 'COMPLAINT') {
       console.log(`👷 [Worker] Menerima permintaan pengalihan ke Admin Manusia dari ${sender}`);
       session.step = 'HANDOFF_ADMIN';
-      replyText = `🤖 Baik Kak, pesan Kakak telah kami teruskan ke Admin Resepsionis Klinik Gigi kami. Bot otomatis diistirahatkan sementara untuk nomor ini. Admin kami akan segera membalas percakapan Kakak secara manual ya. Terima kasih! 🙏`;
+      replyText = `🤖 Baik Kak, pesan Kakak telah kami teruskan ke Admin Resepsionis / Beauty Consultant klinik kami. Bot otomatis diistirahatkan sementara untuk nomor ini. Admin kami akan segera membalas percakapan Kakak secara manual ya. Terima kasih! 🙏✨`;
       await whatsappProvider.sendMessage(sender, replyText);
       session.history.push({ role: 'assistant', content: replyText });
       
@@ -182,7 +182,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
 
       if (env.ADMIN_WA_NUMBER && env.ADMIN_WA_NUMBER.trim() !== '') {
         const patientName = session.booking?.nama_pasien || 'Pasien';
-        const adminAlertMessage = `🚨 *[ALERT PASIEN HANDOFF KLINIK GIGI]*\n\n👤 *Pasien:* ${patientName} (${cleanSenderPhone})\n💬 *Pesan Pasien:* "${message}"\n\n💬 *Cara Balas dari WA:* \n\`!balas ${cleanSenderPhone} <pesan_anda>\` \n\n🤖 *Cara Aktifkan Bot Kembali:* \n\`!bot-on ${cleanSenderPhone}\``;
+        const adminAlertMessage = `🚨 *[ALERT PASIEN HANDOFF KLINIK KECANTIKAN]*\n\n👤 *Klien:* ${patientName} (${cleanSenderPhone})\n💬 *Pesan Klien:* "${message}"\n\n💬 *Cara Balas dari WA:* \n\`!balas ${cleanSenderPhone} <pesan_anda>\` \n\n🤖 *Cara Aktifkan Bot Kembali:* \n\`!bot-on ${cleanSenderPhone}\``;
         console.log(`📡 [Worker] Meneruskan notifikasi Handoff ke WA Admin: ${env.ADMIN_WA_NUMBER}`);
         await whatsappProvider.sendMessage(env.ADMIN_WA_NUMBER, adminAlertMessage);
       }
@@ -196,7 +196,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
       console.log(`👷 [Worker] Menerima ucapan terima kasih dari ${sender}`);
       const patientName = session.booking?.nama_pasien || '';
       const nameCall = patientName ? ` Kak *${patientName}*` : ' Kak';
-      replyText = `🤖 Sama-sama${nameCall}! Senang bisa membantu melayani Kakak. Jika ada pertanyaan seputar perawatan gigi atau ingin konsultasi lagi, jangan ragu untuk chat kami kembali ya. Sampai jumpa di klinik gigi kami! 🙏😊🦷`;
+      replyText = `🤖 Sama-sama${nameCall}! Senang bisa membantu melayani Kakak. Jika ada pertanyaan seputar perawatan kecantikan kulit atau ingin konsultasi lagi, jangan ragu untuk chat kami kembali ya. Sampai jumpa di klinik kecantikan kami! 🙏😊✨🌸`;
       await whatsappProvider.sendMessage(sender, replyText);
       session.history.push({ role: 'assistant', content: replyText });
       await sessionService.setSession(sender, session);
@@ -204,13 +204,13 @@ export const whatsappWorker = new Worker<ChatJobData>(
     }
 
     // ------------------------------------------------------------------------
-    // HANDLING GLOBAL INTENT: CANCEL (BATALKAN RESERVASI KLINIK GIGI)
+    // HANDLING GLOBAL INTENT: CANCEL (BATALKAN RESERVASI KLINIK KECANTIKAN)
     // ------------------------------------------------------------------------
     if (intent === 'CANCEL') {
       console.log(`👷 [Worker] Menerima permintaan pembatalan dari ${sender}`);
       session.step = 'IDLE';
       session.booking = undefined;
-      replyText = `🤖 Baik Kak, reservasi janji temu dokter gigi Anda saat ini telah dibatalkan. Jika ingin melakukan reservasi pemeriksaan gigi di lain waktu, cukup ketik kembali tindakan yang diinginkan ya Kak. Terima kasih! 😊`;
+      replyText = `🤖 Baik Kak, reservasi janji temu perawatan kecantikan Anda saat ini telah dibatalkan. Jika ingin melakukan reservasi treatment di lain waktu, cukup ketik kembali perawatan yang diinginkan ya Kak. Terima kasih! 😊✨`;
       await whatsappProvider.sendMessage(sender, replyText);
       session.history.push({ role: 'assistant', content: replyText });
       await sessionService.setSession(sender, session);
@@ -219,14 +219,14 @@ export const whatsappWorker = new Worker<ChatJobData>(
     }
 
     // ------------------------------------------------------------------------
-    // STATE MACHINE FLOW (KLINIK GIGI / DENTAL CLINIC)
+    // STATE MACHINE FLOW (KLINIK KECANTIKAN & ESTETIKA)
     // ------------------------------------------------------------------------
 
     // A. STATE: AWAITING_NAME (MENUNGGU NAMA PASIEN)
     if (session.step === 'AWAITING_NAME') {
       if (intent === 'INQUIRY') {
         replyText = await answerInquiry(message, catalogContext, session.history);
-        replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Nama Lengkap Pasien** terlebih dahulu ya Kak agar reservasi klinik gigi bisa kami catat. 😊`;
+        replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Nama Lengkap Pasien/Klien** terlebih dahulu ya Kak agar reservasi klinik kecantikan bisa kami catat. 😊`;
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
         await sessionService.setSession(sender, session);
@@ -255,7 +255,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
         if (isDateMissing || isTimeMissing) {
           session.step = 'AWAITING_DATE_TIME';
           if (isDateMissing) {
-            replyText = `🤖 Terima kasih Kak *${cleanName}*! Selanjutnya, mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** yang Kakak inginkan untuk periksa gigi ya (contoh: *Besok jam 14:00 WIB* atau *Sabtu jam 10:00 WIB*). 😊`;
+            replyText = `🤖 Terima kasih Kak *${cleanName}*! Selanjutnya, mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** yang Kakak inginkan untuk perawatan ya (contoh: *Besok jam 14:00 WIB* atau *Sabtu jam 10:00 WIB*). 😊`;
           } else {
             replyText = `🤖 Terima kasih Kak *${cleanName}*! Untuk tanggal *${session.booking.tanggal_booking}*, Kakak ingin mengambil **Jam Slot** berapa? (Klinik kami buka 09:00 - 20:00 WIB, contoh: *14:00 WIB* atau *10:00 WIB*). 😊`;
           }
@@ -274,7 +274,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
     if (session.step === 'AWAITING_DATE_TIME') {
       if (intent === 'INQUIRY') {
         replyText = await answerInquiry(message, catalogContext, session.history);
-        replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak terlebih dahulu ya agar bisa kami jadwalkan dokter giginya. 😊`;
+        replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak terlebih dahulu ya agar bisa kami jadwalkan dokter estetikanya. 😊`;
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
         await sessionService.setSession(sender, session);
@@ -340,10 +340,10 @@ export const whatsappWorker = new Worker<ChatJobData>(
         if (session.booking) {
           session.booking.nomor_hp = sanitizePhoneNumber(session.booking.nomor_hp, cleanSenderPhone);
           
-          console.log(`📊 [Sheets Service] Menulis data reservasi klinik gigi ke Google Sheets...`);
+          console.log(`📊 [Sheets Service] Menulis data reservasi klinik kecantikan ke Google Sheets...`);
           await appendBookingToSheet(session.booking);
           
-          replyText = `🤖 *Reservasi Klinik Gigi Berhasil Terdaftar!* \n\nHalo Kak *${session.booking.nama_pasien}*, janji temu pemeriksaan gigi Anda telah resmi terdaftar di klinik gigi kami. Tim resepsionis kami akan mengonfirmasi ulang jadwal Kakak. Terima kasih dan sampai jumpa di klinik gigi kami! 🙏😊`;
+          replyText = `🤖 *Reservasi Klinik Kecantikan Berhasil Terdaftar!* \n\nHalo Kak *${session.booking.nama_pasien}*, janji temu perawatan kecantikan Anda telah resmi terdaftar di klinik kami. Tim resepsionis / beauty consultant kami akan mengonfirmasi ulang jadwal Kakak. Terima kasih dan sampai jumpa di klinik kecantikan kami! 🙏😊✨`;
           
           await whatsappProvider.sendMessage(sender, replyText);
           session.history.push({ role: 'assistant', content: replyText });
@@ -351,13 +351,13 @@ export const whatsappWorker = new Worker<ChatJobData>(
           session.step = 'IDLE';
           session.booking = undefined;
           await sessionService.setSession(sender, session);
-          console.log(`👷 [Worker] Reservasi klinik gigi selesai & ditulis ke Google Sheets untuk ${sender}`);
+          console.log(`👷 [Worker] Reservasi klinik kecantikan selesai & ditulis ke Google Sheets untuk ${sender}`);
         }
         return;
       }
       
       if (intent === 'BOOKING') {
-        console.log(`👷 [Worker] Mendeteksi perubahan/tambahan tindakan dalam AWAITING_CONFIRMATION`);
+        console.log(`👷 [Worker] Mendeteksi perubahan/tambahan treatment dalam AWAITING_CONFIRMATION`);
         const updatedBooking = await extractBookingFromChat(message, catalogContext, session.history, session.booking);
         
         if (updatedBooking && updatedBooking.layanan_dipilih && updatedBooking.layanan_dipilih.length > 0) {
@@ -365,7 +365,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
           session.booking = updatedBooking;
           replyText = renderBookingRecap(session.booking, cleanSenderPhone);
         } else {
-          replyText = `🤖 Maaf Kak, perubahan reservasi belum sesuai dengan katalog perawatan gigi kami. Silakan ketik kembali nama tindakan gigi yang diinginkan ya Kak.`;
+          replyText = `🤖 Maaf Kak, perubahan reservasi belum sesuai dengan katalog perawatan kecantikan kami. Silakan ketik kembali nama treatment yang diinginkan ya Kak.`;
         }
         
         await whatsappProvider.sendMessage(sender, replyText);
@@ -376,7 +376,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
 
       if (intent === 'INQUIRY') {
         replyText = await answerInquiry(message, catalogContext, session.history);
-        replyText = `${replyText}\n\n*Catatan:* Konfirmasi jadwal periksa gigi Kakak di atas masih menggantung. Apakah rincian janji temu sudah sesuai? (Ketik **Ya** jika sesuai). 😊`;
+        replyText = `${replyText}\n\n*Catatan:* Konfirmasi jadwal perawatan Kakak di atas masih menunggu konfirmasi. Apakah rincian janji temu sudah sesuai? (Ketik **Ya** jika sesuai). 😊✨`;
         await whatsappProvider.sendMessage(sender, replyText);
         session.history.push({ role: 'assistant', content: replyText });
         await sessionService.setSession(sender, session);
@@ -387,12 +387,12 @@ export const whatsappWorker = new Worker<ChatJobData>(
     // D. STATE: IDLE (TIDAK ADA RESERVASI AKTIF)
     if (session.step === 'IDLE') {
       if (intent === 'BOOKING') {
-        console.log(`👷 [Worker] Memproses pendaftaran reservasi klinik gigi baru...`);
+        console.log(`👷 [Worker] Memproses pendaftaran reservasi klinik kecantikan baru...`);
         const extractedBooking = await extractBookingFromChat(message, catalogContext, session.history);
         
         if (!extractedBooking.layanan_dipilih || extractedBooking.layanan_dipilih.length === 0) {
-          console.log(`⚠️ [Worker] Pasien berniat booking tetapi tidak ada tindakan gigi yang cocok dengan katalog.`);
-          replyText = `🤖 Halo Kak! Kami mendeteksi Kakak ingin melakukan reservasi pemeriksaan gigi, tetapi jenis tindakan yang disebutkan belum tersedia di katalog kami.\n\n*Berikut Perawatan Gigi yang Tersedia:* \n${catalogContext}\n\nSilakan ketik ulang nama tindakan gigi yang Kakak inginkan ya! Terima kasih! 😊`;
+          console.log(`⚠️ [Worker] Pasien berniat booking tetapi tidak ada treatment yang cocok dengan katalog.`);
+          replyText = `🤖 Halo Kak! Kami mendeteksi Kakak ingin melakukan reservasi perawatan, tetapi jenis treatment yang disebutkan belum tersedia di katalog kami.\n\n*Berikut Perawatan Kecantikan yang Tersedia:* \n${catalogContext}\n\nSilakan ketik ulang nama treatment yang Kakak inginkan ya! Terima kasih! 😊✨`;
           await whatsappProvider.sendMessage(sender, replyText);
           session.history.push({ role: 'assistant', content: replyText });
           await sessionService.setSession(sender, session);
@@ -417,11 +417,11 @@ export const whatsappWorker = new Worker<ChatJobData>(
 
         if (isNameMissing) {
           session.step = 'AWAITING_NAME';
-          replyText = `🤖 Terima kasih! Mohon infokan **Nama Lengkap Pasien** Kakak ya agar reservasi periksa gigi bisa kami catat. 😊`;
+          replyText = `🤖 Terima kasih! Mohon infokan **Nama Lengkap Pasien/Klien** Kakak ya agar reservasi perawatan bisa kami catat. 😊`;
         } else if (isDateMissing || isTimeMissing) {
           session.step = 'AWAITING_DATE_TIME';
           if (isDateMissing) {
-            replyText = `🤖 Terima kasih Kak *${extractedBooking.nama_pasien}*! Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak ya agar kami jadwalkan dokter giginya (contoh: *Besok jam 14:00 WIB*). 😊`;
+            replyText = `🤖 Terima kasih Kak *${extractedBooking.nama_pasien}*! Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak ya agar kami jadwalkan dokternya (contoh: *Besok jam 14:00 WIB*). 😊`;
           } else {
             replyText = `🤖 Terima kasih Kak *${extractedBooking.nama_pasien}*! Untuk tanggal *${extractedBooking.tanggal_booking}*, Kakak ingin mengambil **Jam Slot** berapa? (Klinik kami buka 09:00 - 20:00 WIB, contoh: *14:00 WIB* atau *10:00 WIB*). 😊`;
           }
@@ -448,7 +448,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
       // Default Response (Sapaan Pembuka atau Percakapan Umum)
       const isGreeting = /^(halo|hai|p|pagi|siang|sore|malam|assalamu|halo kak|hi|menu|bantuan)/i.test(cleanMessageLower);
       if (isGreeting) {
-        replyText = `🤖 Halo Kak! Selamat datang di Klinik Gigi (Dental Clinic) Kami. 😊\n\nAda yang bisa kami bantu seputar perawatan atau kesehatan gigi Kakak? Kakak bisa menanyakan estimasi biaya/tarif dokter gigi, atau bisa langsung mengetikkan jadwal booking periksa gigi Kakak.\n\n*Contoh Format Reservasi:*\n_\"Mau booking scaling gigi dan tambal gigi untuk besok jam 2 siang kak\"_`;
+        replyText = `🤖 Halo Kak! Selamat datang di Klinik Kecantikan & Estetika Kami. 😊✨\n\nAda yang bisa kami bantu seputar konsultasi kulit atau perawatan kecantikan Kakak? Kakak bisa menanyakan estimasi biaya/tarif treatment, rekomendasi perawatan wajah, atau bisa langsung mengetikkan jadwal booking treatment Kakak.\n\n*Contoh Format Reservasi:*\n_\"Mau booking Facial Glowing dan Laser Acne untuk besok jam 2 siang kak\"_`;
       } else {
         replyText = await answerInquiry(message, catalogContext, session.history);
         replyText = `🤖 ${replyText}`;
@@ -473,5 +473,5 @@ whatsappWorker.on('failed', (job, err) => {
   console.error(`🚨 [Worker] Job #${job?.id} GAGAL diproses! Alasan:`, err.message);
 });
 
-console.log(`⚙️ [Worker] Worker '${WHATSAPP_QUEUE_NAME}' (Dental Clinic Booking) aktif...`);
+console.log(`⚙️ [Worker] Worker '${WHATSAPP_QUEUE_NAME}' (Beauty & Aesthetic Clinic Booking) aktif...`);
 export default whatsappWorker;

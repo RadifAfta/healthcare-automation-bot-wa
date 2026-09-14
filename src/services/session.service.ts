@@ -10,7 +10,7 @@ export interface BookingSession {
 }
 
 /**
- * Service untuk mengelola sesi percakapan multi-turn Klinik Kecantikan & Gigi.
+ * Service untuk mengelola sesi percakapan multi-turn Klinik Kecantikan & Estetika.
  * Menggunakan Redis sebagai media penyimpanan utama dengan mekanisme fallback otomatis ke In-Memory Map.
  */
 class SessionService {
