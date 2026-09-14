@@ -11,7 +11,7 @@ export interface ChatMessage {
   content: string;
 }
 
-// Tipe Niat (Intent) pesan WhatsApp masuk untuk Klinik Gigi (Dental Clinic)
+// Tipe Niat (Intent) pesan WhatsApp masuk untuk Klinik Kecantikan & Estetika (Beauty & Aesthetic Clinic)
 export type IntentType = 'BOOKING' | 'INQUIRY' | 'COMPLAINT' | 'CONFIRM' | 'CANCEL' | 'TALK_TO_HUMAN' | 'GRATITUDE' | 'OTHER';
 
 // Interface untuk respons deteksi intent
@@ -20,7 +20,7 @@ export interface IntentResult {
   explanation: string;
 }
 
-// Interface untuk bentuk data hasil ekstraksi reservasi klinik gigi yang sudah tervalidasi katalog
+// Interface untuk bentuk data hasil ekstraksi reservasi klinik kecantikan yang sudah tervalidasi katalog
 export interface ExtractedBooking {
   nama_pasien: string;
   nomor_hp: string;
@@ -35,18 +35,18 @@ export interface ExtractedBooking {
 }
 
 /**
- * Service untuk mendeteksi niat (intent) dari chat pasien Klinik Gigi (Dental Clinic).
+ * Service untuk mendeteksi niat (intent) dari chat pasien Klinik Kecantikan & Estetika.
  */
 export const classifyIntent = async (message: string, history: ChatMessage[] = []): Promise<IntentType> => {
   try {
-    const systemPrompt = `Kamu adalah AI Router cerdas yang bertugas mengklasifikasi kategori pesan dari pasien Klinik Gigi (Dental Clinic).
+    const systemPrompt = `Kamu adalah AI Router cerdas yang bertugas mengklasifikasi kategori pesan dari pasien/klien Klinik Kecantikan & Estetika (Beauty & Aesthetic Clinic).
 Tentukan kategori pesan dari daftar berikut:
-- CONFIRM: Jika pesan berisi konfirmasi setuju, mengiyakan rekap kartu reservasi, atau konfirmasi "Ya" / "Oke" / "Benar" / "Setuju" terhadap jadwal booking pemeriksaan gigi sebelumnya. Contoh: "ya", "oke", "benar", "betul kak", "ya reservasi saya sudah benar", "ok pas".
-- CANCEL: Jika pesan berisi keinginan membatalkan reservasi janji temu dokter gigi atau menghapus booking klinik. Contoh: "batalin aja", "batal", "cancel booking saya", "gak jadi periksa gigi deh".
-- BOOKING: Jika pesan berisi niat untuk mendaftar reservasi periksa gigi, mengambil slot tindakan gigi (seperti scaling, tambal gigi, cabut gigi, behel, bleaching, perawatan saluran akar), menentukan tanggal/jam kedatangan, atau menambah jadwal perawatan gigi. Contoh: "mau booking scaling gigi besok", "pesen tempat tambal gigi jam 2 siang", "daftar periksa behel hari sabtu", "booking bleaching gigi sama drg. amanda".
-- INQUIRY: Jika pesan berisi pertanyaan umum tentang biaya/tarif tindakan gigi, katalog perawatan gigi, jam buka klinik gigi, ketersediaan dokter gigi (drg), lokasi fisik klinik, atau syarat persiapan sebelum tindakan gigi. Contoh: "scaling gigi berapa ya kak?", "buka jam berapa?", "drg. amanda ada hari apa aja?", "cabut gigi sakit gak?", "alamat kliniknya di mana?".
-- COMPLAINT: Jika pesan berisi komplain, keluhan kelambatan pelayanan, ketidakpuasan hasil tindakan gigi, atau keluhan noda/sakit gigi pasca periksa. Contoh: "gigi saya sakit banget setelah ditambal kemarin", "pelayanannya lambat banget tadi".
-- TALK_TO_HUMAN: Jika pesan berisi permintaan eksplisit untuk berbicara langsung dengan admin manusia, resepsionis, atau CS klinik. Contoh: "mau bicara sama cs", "admin manusia dong", "transfer ke admin", "mau ngobrol sama admin manusia", "bisa bicara dengan resepsionis?".
+- CONFIRM: Jika pesan berisi konfirmasi setuju, mengiyakan rekap kartu reservasi, atau konfirmasi "Ya" / "Oke" / "Benar" / "Setuju" terhadap jadwal booking treatment kecantikan / perawatan kulit sebelumnya. Contoh: "ya", "oke", "benar", "betul kak", "ya reservasi saya sudah benar", "ok pas".
+- CANCEL: Jika pesan berisi keinginan membatalkan reservasi janji temu dokter estetika atau menghapus booking treatment klinik kecantikan. Contoh: "batalin aja", "batal", "cancel booking saya", "gak jadi treatment deh".
+- BOOKING: Jika pesan berisi niat untuk mendaftar reservasi treatment kecantikan, mengambil slot perawatan (seperti facial, laser glowing, chemical peeling, skin booster, botox, filler, acne care, slimming, infus whitening), menentukan tanggal/jam kedatangan, atau menambah jadwal perawatan. Contoh: "mau booking facial glowing besok", "pesen tempat laser acne jam 2 siang", "daftar skin booster hari sabtu", "booking peeling sama dr. amanda".
+- INQUIRY: Jika pesan berisi pertanyaan umum tentang biaya/tarif treatment kecantikan, konsultasi masalah kulit (jerawat, flek, kusam, pori besar, bekas jerawat), katalog perawatan, jam buka klinik, ketersediaan dokter estetika (dr. Sp.DVE / dr. Estetika), lokasi klinik, atau pantangan/persiapan sebelum treatment. Contoh: "laser glowing berapa ya kak?", "buka jam berapa?", "dr. amanda praktek hari apa aja?", "facial sakit gak?", "alamat kliniknya di mana?", "buat bekas jerawat bagusnya treatment apa ya?".
+- COMPLAINT: Jika pesan berisi komplain, keluhan kelambatan pelayanan, ketidakpuasan hasil treatment, atau keluhan reaksi kulit (kemerahan/iritasi/purging) pasca treatment. Contoh: "muka saya merah banget setelah peeling kemarin", "pelayanannya lambat banget tadi".
+- TALK_TO_HUMAN: Jika pesan berisi permintaan eksplisit untuk berbicara langsung dengan admin manusia, resepsionis, atau beauty consultant klinik. Contoh: "mau bicara sama cs", "admin manusia dong", "transfer ke admin", "mau ngobrol sama admin manusia", "bisa bicara dengan resepsionis?".
 - GRATITUDE: Jika pesan berisi ucapan terima kasih, salam penutup, rasa puas, atau apresiasi setelah informasi/reservasi selesai. Contoh: "terima kasih kak", "makasih ya", "makasih banyak", "thank you", "tq kak", "siap makasih", "oke mantap makasih", "sip makasih ya".
 - OTHER: Jika pesan hanya berisi salam pembuka (halo, p, pagi, siang), basa-basi umum, atau teks acak.
 
@@ -73,7 +73,7 @@ Struktur JSON yang wajib kamu kembalikan harus memiliki key berikut:
     ];
 
     const response = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: env.GROQ_MODEL,
       messages: formattedMessages,
       response_format: {
         type: 'json_object',
@@ -91,28 +91,29 @@ Struktur JSON yang wajib kamu kembalikan harus memiliki key berikut:
 };
 
 /**
- * Service untuk menjawab pertanyaan umum pasien (INQUIRY / FAQ) Klinik Gigi secara ramah, profesional, & empatik.
+ * Service untuk menjawab pertanyaan umum pasien (INQUIRY / FAQ) Klinik Kecantikan secara ramah, profesional, & empatik.
  */
 export const answerInquiry = async (message: string, catalogContext: string, history: ChatMessage[] = []): Promise<string> => {
   try {
-    const systemPrompt = `Kamu adalah Customer Service AI (Resepsionis) yang ramah, sopan, empatik, dan profesional khusus untuk Klinik Gigi (Dental Clinic).
-Tugasmu adalah menjawab pertanyaan pasien (Inquiry/FAQ) secara singkat, jelas, dan membantu berdasarkan konteks katalog tindakan & dokter gigi berikut:
+    const systemPrompt = `Kamu adalah Beauty Consultant & Customer Service AI (Resepsionis) yang ramah, sopan, empatik, dan profesional khusus untuk Klinik Kecantikan & Estetika (Beauty & Aesthetic Clinic).
+Tugasmu adalah menjawab pertanyaan pasien/klien (Inquiry/FAQ) seputar perawatan kecantikan, keluhan kulit, dan jadwal treatment secara singkat, jelas, dan membantu berdasarkan konteks katalog treatment & dokter estetika berikut:
 
-Katalog Perawatan & Tarif Dokter Gigi Aktif:
+Katalog Perawatan & Tarif Klinik Kecantikan Aktif:
 ${catalogContext}
 
-Informasi Umum Klinik Gigi:
+Informasi Umum Klinik Kecantikan & Estetika:
 - Jam Operasional: Senin - Sabtu, 09:00 - 20:00 WIB (Minggu & Libur Nasional Tutup)
 - Lokasi Klinik: Jl. Kesehatan Raya No. 88, Jakarta (Dekat Pusat Kota)
-- Fasilitas: Alat Steril Standar Medis, Dokter Gigi Spesialis (drg), Ruang Tunggu Nyaman & AC
+- Fasilitas: Ruang Treatment Nyaman & Higienis, Alat Estetika Medis Modern, Dokter Estetika Bersertifikasi / Sp.DVE, Ruang Tunggu Eksklusif & AC
 - Metode Pembayaran: Cash, QRIS, Transfer Bank, & Kartu Kredit
 
 Aturan Komunikasi:
-- Gunakan bahasa Indonesia yang santun, ramah, dan empatik (gunakan sapaan "Kak" atau "Kakak").
-- Jika menanyakan harga tindakan gigi / dokter gigi, jawab secara presisi sesuai katalog aktif di atas.
-- Jika menanyakan perawatan yang tidak ada di katalog, katakan dengan sopan bahwa layanan tersebut saat ini belum tersedia di klinik gigi kami.
-- Jangan memberikan diagnosis medis gigi yang terlalu berisiko, sarankan pasien untuk mendaftar reservasi janji temu agar bisa diperiksa langsung oleh dokter gigi profesional kami.
-- Maksimal 3-4 kalimat. Akhiri dengan sapaan atau emotikon yang ramah.`;
+- Gunakan bahasa Indonesia yang santun, ramah, dan khas beauty consultant (gunakan sapaan "Kak" atau "Kakak").
+- Berikan penjelasan manfaat treatment secara ringkas dan solutif jika klien menanyakan solusi keluhan kulit (misal kulit kusam direkomendasikan facial brightening / laser glowing; jerawat direkomendasikan acne care / chemical peeling).
+- Jika menanyakan harga tindakan kecantikan / dokter estetika, jawab secara presisi sesuai katalog aktif di atas.
+- Jika menanyakan perawatan yang tidak ada di katalog, katakan dengan sopan bahwa layanan tersebut saat ini belum tersedia di klinik kami.
+- Jangan memberikan resep obat keras tanpa pengawasan dokter, sarankan pasien untuk datang konsultasi & skin analysis langsung dengan dokter estetika kami.
+- Maksimal 3-4 kalimat. Akhiri dengan sapaan ramah dan emotikon cantik (😊✨🌸).`;
 
     const formattedMessages = [
       {
@@ -130,15 +131,15 @@ Aturan Komunikasi:
     ];
 
     const response = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: env.GROQ_MODEL,
       messages: formattedMessages,
       temperature: 0.4,
     });
 
-    return response.choices[0]?.message?.content || 'Halo Kak! Ada yang bisa kami bantu seputar informasi perawatan dan konsultasi kesehatan gigi di klinik gigi kami? 😊';
+    return response.choices[0]?.message?.content || 'Halo Kak! Ada yang bisa kami bantu seputar informasi perawatan kulit dan konsultasi kecantikan di klinik kami? 😊✨';
   } catch (error) {
     console.error('❌ [AI Service] Gagal menyusun balasan inquiry:', error);
-    return 'Halo Kak! Pertanyaan Kakak telah kami terima. Admin resepsionis klinik gigi kami akan segera membantu membalas pesan Kakak ya! 😊';
+    return 'Halo Kak! Pertanyaan Kakak telah kami terima. Admin resepsionis / beauty consultant kami akan segera membantu membalas pesan Kakak ya! 😊✨';
   }
 };
 
@@ -159,7 +160,7 @@ export const cleanPatientName = (rawText: string): string => {
 };
 
 /**
- * Service untuk mengekstrak data reservasi klinik gigi terstruktur dari chat WhatsApp pasien.
+ * Service untuk mengekstrak data reservasi klinik kecantikan terstruktur dari chat WhatsApp pasien.
  */
 export const extractBookingFromChat = async (
   message: string,
@@ -180,11 +181,11 @@ export const extractBookingFromChat = async (
       ? `\nReservasi Aktif Saat Ini yang Sedang Berjalan:\n${JSON.stringify(currentBooking, null, 2)}\n`
       : '';
 
-    const systemPrompt = `Kamu adalah sistem AI ekstraksi data reservasi presisi tinggi untuk Klinik Gigi (Dental Clinic). Tugasmu adalah mengekstrak chat pendaftaran pasien menjadi data JSON yang bersih, terstruktur, dan tervalidasi terhadap Katalog Tindakan Gigi resmi.
+    const systemPrompt = `Kamu adalah sistem AI ekstraksi data reservasi presisi tinggi untuk Klinik Kecantikan & Estetika (Beauty & Aesthetic Clinic). Tugasmu adalah mengekstrak chat pendaftaran pasien menjadi data JSON yang bersih, terstruktur, dan tervalidasi terhadap Katalog Perawatan Kecantikan resmi.
 
 Hari Ini: ${todayStr}
 
-Katalog Tindakan Gigi Resmi:
+Katalog Perawatan Kecantikan Resmi:
 ${catalogContext}
 ${currentBookingContext}
 
@@ -200,8 +201,8 @@ Tugas & Aturan Ekstraksi Presisi:
    - "jam 7 malam" / "jam 19" / "19.00" / "19:00" -> "19:00 WIB"
    - "10.30" / "10:30" -> "10:30 WIB"
    Jika pasien menyebutkan jam berapa pun, WAJIB kamu ekstrak ke format "HH:MM WIB". DILARANG mengarang frasa generik seperti "Sesuai Jadwal". Jika pasien belum sebutkan jam, kembalikan "".
-5. TINDAKAN GIGI: Cocokkan (fuzzy match) setiap tindakan gigi yang diminta dengan Nama Layanan dari Katalog resmi. Isi nama_layanan dan estimasi_harga (number). Hitung total_estimasi (number).
-6. DOKTER PILIHAN: Ekstrak nama dokter gigi pilihan (contoh: "drg. Amanda"). Jika tidak ada, kembalikan "-".
+5. TINDAKAN KECANTIKAN: Cocokkan (fuzzy match) setiap perawatan kecantikan yang diminta dengan Nama Layanan dari Katalog resmi. Isi nama_layanan dan estimasi_harga (number). Hitung total_estimasi (number).
+6. DOKTER PILIHAN: Ekstrak nama dokter estetika pilihan (contoh: "dr. Amanda"). Jika tidak ada, kembalikan "-".
 7. JIKA ada "Reservasi Aktif Saat Ini", gabungkan atau perbarui informasi baru tanpa menghapus data pasien/layanan yang sudah ada.
 
 Struktur JSON yang wajib kamu kembalikan:
@@ -210,7 +211,7 @@ Struktur JSON yang wajib kamu kembalikan:
 - layanan_dipilih (array of object: 'nama_layanan', 'estimasi_harga')
 - tanggal_booking (string, format "[Hari], [Tanggal] [Bulan] [Tahun]", kosongkan "" jika belum ada)
 - jam_booking (string, format "HH:MM WIB", kosongkan "" jika belum ada jam spesifik)
-- dokter_pilihan (string, contoh: "drg. Amanda", kosongkan "-" jika tidak ada)
+- dokter_pilihan (string, contoh: "dr. Amanda", kosongkan "-" jika tidak ada)
 - total_estimasi (number, akumulasi estimasi harga)
 
 Kamu WAJIB mengembalikan respon HANYA berupa objek JSON mentah yang valid, tanpa teks basa-basi, tanpa tanda backticks (\`\`\`json), dan tanpa penjelasan apa pun.`;
@@ -231,7 +232,7 @@ Kamu WAJIB mengembalikan respon HANYA berupa objek JSON mentah yang valid, tanpa
     ];
 
     const response = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: env.GROQ_MODEL,
       messages: formattedMessages,
       response_format: {
         type: 'json_object',
@@ -243,7 +244,7 @@ Kamu WAJIB mengembalikan respon HANYA berupa objek JSON mentah yang valid, tanpa
     const parsedData: ExtractedBooking = JSON.parse(rawJsonString);
     return parsedData;
   } catch (error) {
-    console.error('❌ [AI Service] Gagal mengekstrak data reservasi klinik gigi dari chat:', error);
+    console.error('❌ [AI Service] Gagal mengekstrak data reservasi klinik kecantikan dari chat:', error);
     return {
       nama_pasien: '',
       nomor_hp: '',
