@@ -10,6 +10,8 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   REDIS_HOST: z.string().default('127.0.0.1'),
   REDIS_PORT: z.coerce.number().default(6379),
+  REDIS_PASSWORD: z.string().default(''),
+  REDIS_TLS: z.coerce.boolean().default(false),
   WA_PROVIDER: z.enum(['cloud_api', 'web']).default('cloud_api'),
   META_WA_PHONE_NUMBER_ID: z.string().default(''),
   META_WA_ACCESS_TOKEN: z.string().default(''),

@@ -7,6 +7,8 @@ import { env } from './env';
 export const redisConnection: ConnectionOptions = {
   host: env.REDIS_HOST,
   port: env.REDIS_PORT,
-  // Di masa depan, Anda bisa menambahkan options lain di sini seperti 'password', 'db', atau 'tls'
+  password: env.REDIS_PASSWORD ? env.REDIS_PASSWORD : undefined,
+  tls: env.REDIS_TLS ? {} : undefined,
+  maxRetriesPerRequest: null,
 };
 export default redisConnection;

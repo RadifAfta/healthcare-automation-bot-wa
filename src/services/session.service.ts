@@ -24,8 +24,10 @@ class SessionService {
       this.redis = new Redis({
         host: env.REDIS_HOST,
         port: env.REDIS_PORT,
+        password: env.REDIS_PASSWORD ? env.REDIS_PASSWORD : undefined,
+        tls: env.REDIS_TLS ? {} : undefined,
         maxRetriesPerRequest: 1, // Retry rendah agar cepat fallback ke memori jika Redis mati
-        connectTimeout: 2000,
+        connectTimeout: 5000,
       });
 
       this.redis.on('connect', () => {
