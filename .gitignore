@@ -4,7 +4,7 @@ jspm_packages/
 web_modules/
 
 # Compiled files
-dist/
+# dist/ (tracked for lightweight VPS deployment)
 out/
 build/
 
