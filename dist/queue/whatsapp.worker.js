@@ -34,6 +34,46 @@ const renderBookingRecap = (booking, cleanSenderPhone) => {
         .join('\n');
     return `🤖 *📋 KARTU RESERVASI KLINIK KECANTIKAN & ESTETIKA* \n\nBerikut rincian jadwal janji temu perawatan kecantikan Kakak:\n\n- *Nama Pasien/Klien:* ${booking.nama_pasien || 'Pasien'}\n- *Nomor WA:* ${validPhone}\n- *Tanggal Booking:* ${booking.tanggal_booking || '-'}\n- *Jam Slot:* ${booking.jam_booking || '-'}\n- *Dokter / Terapis Estetika:* ${booking.dokter_pilihan || '-'}\n\n*Treatment Kecantikan Dipilih:*\n${treatmentDetailsStr}\n\n*💰 Total Estimasi Biaya:* *Rp${booking.total_estimasi.toLocaleString('id-ID')}*\n\nApakah jadwal reservasi perawatan di atas sudah sesuai? (Ketik **Ya** untuk konfirmasi, atau ketik jika ada perubahan/tambahan). 😊✨`;
 };
+// Helper untuk validasi kelengkapan data reservasi, jam operasional, ketersediaan dokter, dan slot kosong di Sheets
+const validateAndProceedBooking = async (booking, cleanSenderPhone, catalog) => {
+    const isNameMissing = !booking.nama_pasien || booking.nama_pasien.trim() === '-' || booking.nama_pasien.trim() === '';
+    const isDateMissing = !booking.tanggal_booking || booking.tanggal_booking.trim() === '-' || booking.tanggal_booking.trim() === '';
+    const isTimeMissing = !booking.jam_booking || booking.jam_booking.trim() === '-' || booking.jam_booking.trim() === '' || booking.jam_booking.includes('Sesuai');
+    if (isNameMissing) {
+        return {
+            step: 'AWAITING_NAME',
+            replyText: `🤖 Terima kasih! Mohon infokan **Nama Lengkap Pasien/Klien** Kakak ya agar reservasi perawatan bisa kami catat. 😊`,
+        };
+    }
+    if (isDateMissing || isTimeMissing) {
+        const promptText = isDateMissing
+            ? `🤖 Terima kasih Kak *${booking.nama_pasien}*! Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** yang Kakak inginkan ya (contoh: *Besok jam 14:00 WIB* atau *Sabtu jam 10:00 WIB*). 😊`
+            : `🤖 Terima kasih Kak *${booking.nama_pasien}*! Untuk tanggal *${booking.tanggal_booking}*, Kakak ingin mengambil **Jam Slot** berapa? (Klinik kami buka 09:00 - 20:00 WIB, contoh: *14:00 WIB* atau *10:00 WIB*). 😊`;
+        return {
+            step: 'AWAITING_DATE_TIME',
+            replyText: promptText,
+        };
+    }
+    // Cari dokter default dari layanan katalog
+    const firstServiceName = (booking.layanan_dipilih && booking.layanan_dipilih[0]?.nama_layanan) || '';
+    const catalogMatch = catalog.find((c) => c.nama.toLowerCase().includes(firstServiceName.toLowerCase()) || firstServiceName.toLowerCase().includes(c.nama.toLowerCase()));
+    const defaultDoctor = catalogMatch?.dokter || '';
+    // Jalankan cek ketersediaan jadwal dokter & konflik slot di Google Sheets
+    const slotCheck = await (0, sheets_service_1.checkSlotAvailability)(booking.tanggal_booking, booking.jam_booking, booking.dokter_pilihan, defaultDoctor);
+    if (!slotCheck.isAvailable) {
+        booking.jam_booking = ''; // Reset jam agar pasien memilih slot yang valid/tersedia
+        return {
+            step: 'AWAITING_DATE_TIME',
+            replyText: `🤖 ${slotCheck.message}`,
+        };
+    }
+    // Jika slot tersedia, tetapkan dokter resmi
+    booking.dokter_pilihan = slotCheck.assignedDoctor || booking.dokter_pilihan;
+    return {
+        step: 'AWAITING_CONFIRMATION',
+        replyText: renderBookingRecap(booking, cleanSenderPhone),
+    };
+};
 // Inisialisasi Worker BullMQ (Consumer)
 exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAME, async (job) => {
     const { sender, message } = job.data;
@@ -130,10 +170,14 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
             return;
         }
     }
-    const catalog = await (0, sheets_service_1.getCatalogFromSheet)();
+    const [catalog, doctorSchedules] = await Promise.all([
+        (0, sheets_service_1.getCatalogFromSheet)(),
+        (0, sheets_service_1.getDoctorSchedulesFromSheet)(),
+    ]);
     const catalogContext = catalog
         .map((item) => `- ${item.nama} (Tarif: Rp${item.harga.toLocaleString('id-ID')}, Durasi: ${item.durasi || '45m'}, Dokter: ${item.dokter || 'Tim Dokter Estetika'})`)
         .join('\n');
+    const doctorScheduleContext = (0, sheets_service_1.formatDoctorScheduleContext)(doctorSchedules);
     // ------------------------------------------------------------------------
     // HANDLING GLOBAL INTENT: HANDOFF TO HUMAN ADMIN (TALK_TO_HUMAN / COMPLAINT)
     // ------------------------------------------------------------------------
@@ -182,7 +226,7 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
     // A. STATE: AWAITING_NAME (MENUNGGU NAMA PASIEN)
     if (session.step === 'AWAITING_NAME') {
         if (intent === 'INQUIRY') {
-            replyText = await (0, ai_service_1.answerInquiry)(message, catalogContext, session.history);
+            replyText = await (0, ai_service_1.answerInquiry)(message, catalogContext, doctorScheduleContext, session.history);
             replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Nama Lengkap Pasien/Klien** terlebih dahulu ya Kak agar reservasi klinik kecantikan bisa kami catat. 😊`;
             await whatsappProvider.sendMessage(sender, replyText);
             session.history.push({ role: 'assistant', content: replyText });
@@ -202,21 +246,9 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
             if (extractedNew.jam_booking && extractedNew.jam_booking.trim() !== '') {
                 session.booking.jam_booking = extractedNew.jam_booking;
             }
-            const isDateMissing = !session.booking.tanggal_booking || session.booking.tanggal_booking.trim() === '' || session.booking.tanggal_booking.trim() === '-';
-            const isTimeMissing = !session.booking.jam_booking || session.booking.jam_booking.trim() === '' || session.booking.jam_booking.trim() === '-' || session.booking.jam_booking.includes('Sesuai');
-            if (isDateMissing || isTimeMissing) {
-                session.step = 'AWAITING_DATE_TIME';
-                if (isDateMissing) {
-                    replyText = `🤖 Terima kasih Kak *${cleanName}*! Selanjutnya, mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** yang Kakak inginkan untuk perawatan ya (contoh: *Besok jam 14:00 WIB* atau *Sabtu jam 10:00 WIB*). 😊`;
-                }
-                else {
-                    replyText = `🤖 Terima kasih Kak *${cleanName}*! Untuk tanggal *${session.booking.tanggal_booking}*, Kakak ingin mengambil **Jam Slot** berapa? (Klinik kami buka 09:00 - 20:00 WIB, contoh: *14:00 WIB* atau *10:00 WIB*). 😊`;
-                }
-            }
-            else {
-                session.step = 'AWAITING_CONFIRMATION';
-                replyText = renderBookingRecap(session.booking, cleanSenderPhone);
-            }
+            const result = await validateAndProceedBooking(session.booking, cleanSenderPhone, catalog);
+            session.step = result.step;
+            replyText = result.replyText;
             await whatsappProvider.sendMessage(sender, replyText);
             session.history.push({ role: 'assistant', content: replyText });
             await session_service_1.sessionService.setSession(sender, session);
@@ -233,7 +265,7 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
     // B. STATE: AWAITING_DATE_TIME (MENUNGGU TANGGAL & JAM KEDATANGAN)
     if (session.step === 'AWAITING_DATE_TIME') {
         if (intent === 'INQUIRY') {
-            replyText = await (0, ai_service_1.answerInquiry)(message, catalogContext, session.history);
+            replyText = await (0, ai_service_1.answerInquiry)(message, catalogContext, doctorScheduleContext, session.history);
             replyText = `${replyText}\n\n*Catatan:* Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak terlebih dahulu ya agar bisa kami jadwalkan dokter estetikanya. 😊`;
             await whatsappProvider.sendMessage(sender, replyText);
             session.history.push({ role: 'assistant', content: replyText });
@@ -253,35 +285,12 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
             if (extractedNew.jam_booking && extractedNew.jam_booking.trim() !== '') {
                 session.booking.jam_booking = extractedNew.jam_booking;
             }
-            // VALIDASI JAM OPERASIONAL KLINIK (09:00 - 20:00 WIB)
-            if (session.booking.jam_booking && session.booking.jam_booking.trim() !== '') {
-                const hourMatch = session.booking.jam_booking.match(/^(\d{1,2}):/);
-                if (hourMatch) {
-                    const hour = parseInt(hourMatch[1], 10);
-                    if (hour < 9 || hour > 20) {
-                        replyText = `🤖 Maaf Kak *${session.booking.nama_pasien}*, klinik kami beroperasi pada pukul **09:00 - 20:00 WIB**. Untuk jam *${session.booking.jam_booking}* klinik sudah tutup ya. Apakah Kakak bersedia di jam operasional kami, misalnya jam *19:00 WIB* (malam) atau jam *10:00 WIB* (pagi)? 😊`;
-                        session.booking.jam_booking = ''; // reset agar pasien memilih slot valid
-                        await whatsappProvider.sendMessage(sender, replyText);
-                        session.history.push({ role: 'assistant', content: replyText });
-                        await session_service_1.sessionService.setSession(sender, session);
-                        return;
-                    }
-                }
+            if (extractedNew.dokter_pilihan && extractedNew.dokter_pilihan.trim() !== '' && extractedNew.dokter_pilihan !== '-') {
+                session.booking.dokter_pilihan = extractedNew.dokter_pilihan;
             }
-            const isDateMissing = !session.booking.tanggal_booking || session.booking.tanggal_booking.trim() === '' || session.booking.tanggal_booking.trim() === '-';
-            const isTimeMissing = !session.booking.jam_booking || session.booking.jam_booking.trim() === '' || session.booking.jam_booking.trim() === '-' || session.booking.jam_booking.includes('Sesuai');
-            if (isDateMissing || isTimeMissing) {
-                if (isDateMissing) {
-                    replyText = `🤖 Terima kasih Kak *${session.booking.nama_pasien}*! Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** yang Kakak inginkan ya (contoh: *Besok jam 14:00 WIB*). 😊`;
-                }
-                else {
-                    replyText = `🤖 Terima kasih Kak *${session.booking.nama_pasien}*! Untuk tanggal *${session.booking.tanggal_booking}*, Kakak ingin mengambil **Jam Slot** berapa? (Klinik kami buka 09:00 - 20:00 WIB, contoh: *14:00 WIB* atau *10:00 WIB*). 😊`;
-                }
-            }
-            else {
-                session.step = 'AWAITING_CONFIRMATION';
-                replyText = renderBookingRecap(session.booking, cleanSenderPhone);
-            }
+            const result = await validateAndProceedBooking(session.booking, cleanSenderPhone, catalog);
+            session.step = result.step;
+            replyText = result.replyText;
             await whatsappProvider.sendMessage(sender, replyText);
             session.history.push({ role: 'assistant', content: replyText });
             await session_service_1.sessionService.setSession(sender, session);
@@ -316,7 +325,9 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
             if (updatedBooking && updatedBooking.layanan_dipilih && updatedBooking.layanan_dipilih.length > 0) {
                 updatedBooking.nomor_hp = sanitizePhoneNumber(updatedBooking.nomor_hp, cleanSenderPhone);
                 session.booking = updatedBooking;
-                replyText = renderBookingRecap(session.booking, cleanSenderPhone);
+                const result = await validateAndProceedBooking(session.booking, cleanSenderPhone, catalog);
+                session.step = result.step;
+                replyText = result.replyText;
             }
             else {
                 replyText = `🤖 Maaf Kak, perubahan reservasi belum sesuai dengan katalog perawatan kecantikan kami. Silakan ketik kembali nama treatment yang diinginkan ya Kak.`;
@@ -327,7 +338,7 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
             return;
         }
         if (intent === 'INQUIRY') {
-            replyText = await (0, ai_service_1.answerInquiry)(message, catalogContext, session.history);
+            replyText = await (0, ai_service_1.answerInquiry)(message, catalogContext, doctorScheduleContext, session.history);
             replyText = `${replyText}\n\n*Catatan:* Konfirmasi jadwal perawatan Kakak di atas masih menunggu konfirmasi. Apakah rincian janji temu sudah sesuai? (Ketik **Ya** jika sesuai). 😊✨`;
             await whatsappProvider.sendMessage(sender, replyText);
             session.history.push({ role: 'assistant', content: replyText });
@@ -364,40 +375,16 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
             }
             extractedBooking.nomor_hp = sanitizePhoneNumber(extractedBooking.nomor_hp, cleanSenderPhone);
             session.booking = extractedBooking;
-            const isNameMissing = !extractedBooking.nama_pasien ||
-                extractedBooking.nama_pasien.trim() === '-' ||
-                extractedBooking.nama_pasien.trim() === '';
-            const isDateMissing = !extractedBooking.tanggal_booking ||
-                extractedBooking.tanggal_booking.trim() === '-' ||
-                extractedBooking.tanggal_booking.trim() === '';
-            const isTimeMissing = !extractedBooking.jam_booking ||
-                extractedBooking.jam_booking.trim() === '-' ||
-                extractedBooking.jam_booking.trim() === '' ||
-                extractedBooking.jam_booking.includes('Sesuai');
-            if (isNameMissing) {
-                session.step = 'AWAITING_NAME';
-                replyText = `🤖 Terima kasih! Mohon infokan **Nama Lengkap Pasien/Klien** Kakak ya agar reservasi perawatan bisa kami catat. 😊`;
-            }
-            else if (isDateMissing || isTimeMissing) {
-                session.step = 'AWAITING_DATE_TIME';
-                if (isDateMissing) {
-                    replyText = `🤖 Terima kasih Kak *${extractedBooking.nama_pasien}*! Mohon infokan **Hari/Tanggal & Jam Slot Kedatangan** Kakak ya agar kami jadwalkan dokternya (contoh: *Besok jam 14:00 WIB*). 😊`;
-                }
-                else {
-                    replyText = `🤖 Terima kasih Kak *${extractedBooking.nama_pasien}*! Untuk tanggal *${extractedBooking.tanggal_booking}*, Kakak ingin mengambil **Jam Slot** berapa? (Klinik kami buka 09:00 - 20:00 WIB, contoh: *14:00 WIB* atau *10:00 WIB*). 😊`;
-                }
-            }
-            else {
-                session.step = 'AWAITING_CONFIRMATION';
-                replyText = renderBookingRecap(extractedBooking, cleanSenderPhone);
-            }
+            const result = await validateAndProceedBooking(session.booking, cleanSenderPhone, catalog);
+            session.step = result.step;
+            replyText = result.replyText;
             await whatsappProvider.sendMessage(sender, replyText);
             session.history.push({ role: 'assistant', content: replyText });
             await session_service_1.sessionService.setSession(sender, session);
             return;
         }
         if (intent === 'INQUIRY') {
-            replyText = await (0, ai_service_1.answerInquiry)(message, catalogContext, session.history);
+            replyText = await (0, ai_service_1.answerInquiry)(message, catalogContext, doctorScheduleContext, session.history);
             replyText = `🤖 ${replyText}`;
             await whatsappProvider.sendMessage(sender, replyText);
             session.history.push({ role: 'assistant', content: replyText });
@@ -410,7 +397,7 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
             replyText = `🤖 Halo Kak! Selamat datang di Klinik Kecantikan & Estetika Kami. 😊✨\n\nAda yang bisa kami bantu seputar konsultasi kulit atau perawatan kecantikan Kakak? Kakak bisa menanyakan estimasi biaya/tarif treatment, rekomendasi perawatan wajah, atau bisa langsung mengetikkan jadwal booking treatment Kakak.\n\n*Contoh Format Reservasi:*\n_\"Mau booking Facial Glowing dan Laser Acne untuk besok jam 2 siang kak\"_`;
         }
         else {
-            replyText = await (0, ai_service_1.answerInquiry)(message, catalogContext, session.history);
+            replyText = await (0, ai_service_1.answerInquiry)(message, catalogContext, doctorScheduleContext, session.history);
             replyText = `🤖 ${replyText}`;
         }
         await whatsappProvider.sendMessage(sender, replyText);

@@ -56,6 +56,64 @@ function doGet(e) {
       return responseJSON({ status: "success", catalog: catalog });
     }
 
+    if (action === "getDoctorSchedules") {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var sheet = ss.getSheetByName("JadwalDokter");
+
+      if (!sheet) {
+        // Jika tab belum dibuat, kembalikan array kosong agar bot menggunakan fallback default
+        return responseJSON({ status: "success", schedules: [] });
+      }
+
+      var data = sheet.getDataRange().getValues();
+      var schedules = [];
+
+      // Format: A: Dokter, B: Hari, C: Jam Mulai, D: Jam Selesai, E: Kuota Per Jam
+      for (var j = 1; j < data.length; j++) {
+        var sRow = data[j];
+        if (sRow[0] && sRow[0].toString().trim() !== "") {
+          schedules.push({
+            dokter: sRow[0].toString().trim(),
+            hari: sRow[1] ? sRow[1].toString().trim() : "Semua Hari",
+            jamMulai: sRow[2] ? sRow[2].toString().trim() : "09:00",
+            jamSelesai: sRow[3] ? sRow[3].toString().trim() : "20:00",
+            kuotaPerJam: parseInt(sRow[4] ? sRow[4].toString().replace(/[^0-9]/g, "") : "1", 10) || 1
+          });
+        }
+      }
+
+      return responseJSON({ status: "success", schedules: schedules });
+    }
+
+    if (action === "getExistingBookings") {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var sheet = ss.getSheetByName("Sheet1") || ss.getSheets()[0];
+
+      if (!sheet) {
+        return responseJSON({ status: "success", bookings: [] });
+      }
+
+      var data = sheet.getDataRange().getValues();
+      var bookings = [];
+
+      // Header: Nama Pasien, Nomor HP, Treatment, Tanggal Booking, Jam Slot, Dokter, Timestamp, Total
+      for (var k = 1; k < data.length; k++) {
+        var bRow = data[k];
+        if (bRow[0] && bRow[0].toString().trim() !== "") {
+          bookings.push({
+            nama_pasien: bRow[0].toString().trim(),
+            nomor_hp: bRow[1] ? bRow[1].toString().trim() : "-",
+            treatment: bRow[2] ? bRow[2].toString().trim() : "-",
+            tanggal_booking: bRow[3] ? bRow[3].toString().trim() : "-",
+            jam_booking: bRow[4] ? bRow[4].toString().trim() : "-",
+            dokter_pilihan: bRow[5] ? bRow[5].toString().trim() : "-"
+          });
+        }
+      }
+
+      return responseJSON({ status: "success", bookings: bookings });
+    }
+
     return responseJSON({ status: "error", message: "Action tidak dikenal" }, 400);
 
   } catch (err) {

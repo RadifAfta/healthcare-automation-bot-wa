@@ -67,14 +67,17 @@ exports.classifyIntent = classifyIntent;
 /**
  * Service untuk menjawab pertanyaan umum pasien (INQUIRY / FAQ) Klinik Kecantikan secara ramah, profesional, & empatik.
  */
-const answerInquiry = async (message, catalogContext, history = []) => {
+const answerInquiry = async (message, catalogContext, doctorScheduleContext = '', history = []) => {
     try {
+        const doctorScheduleBlock = doctorScheduleContext
+            ? `\nJadwal Praktek Dokter Estetika Terkini:\n${doctorScheduleContext}\n`
+            : '';
         const systemPrompt = `Kamu adalah Beauty Consultant & Customer Service AI (Resepsionis) yang ramah, sopan, empatik, dan profesional khusus untuk Klinik Kecantikan & Estetika (Beauty & Aesthetic Clinic).
-Tugasmu adalah menjawab pertanyaan pasien/klien (Inquiry/FAQ) seputar perawatan kecantikan, keluhan kulit, dan jadwal treatment secara singkat, jelas, dan membantu berdasarkan konteks katalog treatment & dokter estetika berikut:
+Tugasmu adalah menjawab pertanyaan pasien/klien (Inquiry/FAQ) seputar perawatan kecantikan, keluhan kulit, jadwal praktek dokter estetika, dan jadwal treatment secara singkat, jelas, dan membantu berdasarkan konteks katalog treatment & jadwal dokter berikut:
 
 Katalog Perawatan & Tarif Klinik Kecantikan Aktif:
 ${catalogContext}
-
+${doctorScheduleBlock}
 Informasi Umum Klinik Kecantikan & Estetika:
 - Jam Operasional: Senin - Sabtu, 09:00 - 20:00 WIB (Minggu & Libur Nasional Tutup)
 - Lokasi Klinik: Jl. Kesehatan Raya No. 88, Jakarta (Dekat Pusat Kota)
@@ -84,7 +87,7 @@ Informasi Umum Klinik Kecantikan & Estetika:
 Aturan Komunikasi:
 - Gunakan bahasa Indonesia yang santun, ramah, dan khas beauty consultant (gunakan sapaan "Kak" atau "Kakak").
 - Berikan penjelasan manfaat treatment secara ringkas dan solutif jika klien menanyakan solusi keluhan kulit (misal kulit kusam direkomendasikan facial brightening / laser glowing; jerawat direkomendasikan acne care / chemical peeling).
-- Jika menanyakan harga tindakan kecantikan / dokter estetika, jawab secara presisi sesuai katalog aktif di atas.
+- Jika menanyakan harga tindakan kecantikan / dokter estetika / jadwal dokter, jawab secara presisi sesuai katalog & jadwal dokter aktif di atas.
 - Jika menanyakan perawatan yang tidak ada di katalog, katakan dengan sopan bahwa layanan tersebut saat ini belum tersedia di klinik kami.
 - Jangan memberikan resep obat keras tanpa pengawasan dokter, sarankan pasien untuk datang konsultasi & skin analysis langsung dengan dokter estetika kami.
 - Maksimal 3-4 kalimat. Akhiri dengan sapaan ramah dan emotikon cantik (😊✨🌸).`;
