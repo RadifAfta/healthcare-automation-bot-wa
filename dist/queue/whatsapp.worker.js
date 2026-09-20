@@ -91,13 +91,8 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
         const parts = cleanMessageTrim.split(/\s+/);
         const targetPhone = parts.length >= 2 ? parts[1].replace(/[^0-9]/g, '') : sender;
         console.log(`👷 [Worker] Perintah reaktivasi bot terdeteksi untuk pasien ${targetPhone}`);
-        let targetSession = await session_service_1.sessionService.getSession(targetPhone);
-        if (!targetSession) {
-            targetSession = { step: 'IDLE', history: [] };
-        }
-        targetSession.step = 'IDLE';
-        targetSession.booking = undefined;
-        await session_service_1.sessionService.setSession(targetPhone, targetSession);
+        // Hapus seluruh riwayat dan sesi lama dari Redis/Memori
+        await session_service_1.sessionService.deleteSession(targetPhone);
         const patientNotification = `🤖 *Bot AI Klinik Kecantikan Telah Aktif Kembali!* \n\nHalo Kak! Bot AI kami siap melayani informasi treatment, konsultasi tarif, jadwal dokter estetika, dan reservasi perawatan Kakak 24/7. Ada yang bisa kami bantu? 😊✨`;
         await whatsappProvider.sendMessage(targetPhone, patientNotification);
         if (targetPhone !== sender) {
@@ -175,14 +170,10 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
     // HANDLING GLOBAL INTENT: CANCEL (BATALKAN RESERVASI KLINIK KECANTIKAN)
     // ------------------------------------------------------------------------
     if (intent === 'CANCEL') {
-        console.log(`👷 [Worker] Menerima permintaan pembatalan dari ${sender}`);
-        session.step = 'IDLE';
-        session.booking = undefined;
         replyText = `🤖 Baik Kak, reservasi janji temu perawatan kecantikan Anda saat ini telah dibatalkan. Jika ingin melakukan reservasi treatment di lain waktu, cukup ketik kembali perawatan yang diinginkan ya Kak. Terima kasih! 😊✨`;
         await whatsappProvider.sendMessage(sender, replyText);
-        session.history.push({ role: 'assistant', content: replyText });
-        await session_service_1.sessionService.setSession(sender, session);
-        console.log(`👷 [Worker] Reservasi dibatalkan & sesi direset ke IDLE untuk ${sender}\n`);
+        await session_service_1.sessionService.deleteSession(sender);
+        console.log(`👷 [Worker] Reservasi dibatalkan & sesi dihapus bersih untuk ${sender}\n`);
         return;
     }
     // ------------------------------------------------------------------------
@@ -314,10 +305,8 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
                 replyText = `🤖 *Reservasi Klinik Kecantikan Berhasil Terdaftar!* \n\nHalo Kak *${session.booking.nama_pasien}*, janji temu perawatan kecantikan Anda telah resmi terdaftar di klinik kami. Tim resepsionis / beauty consultant kami akan mengonfirmasi ulang jadwal Kakak. Terima kasih dan sampai jumpa di klinik kecantikan kami! 🙏😊✨`;
                 await whatsappProvider.sendMessage(sender, replyText);
                 session.history.push({ role: 'assistant', content: replyText });
-                session.step = 'IDLE';
-                session.booking = undefined;
-                await session_service_1.sessionService.setSession(sender, session);
-                console.log(`👷 [Worker] Reservasi klinik kecantikan selesai & ditulis ke Google Sheets untuk ${sender}`);
+                await session_service_1.sessionService.deleteSession(sender);
+                console.log(`👷 [Worker] Reservasi klinik kecantikan selesai & sesi dihapus bersih untuk ${sender}`);
             }
             return;
         }
@@ -362,7 +351,9 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
     if (session.step === 'IDLE') {
         if (intent === 'BOOKING') {
             console.log(`👷 [Worker] Memproses pendaftaran reservasi klinik kecantikan baru...`);
-            const extractedBooking = await (0, ai_service_1.extractBookingFromChat)(message, catalogContext, session.history);
+            // Reset riwayat chat untuk reservasi baru agar tidak terkontaminasi data booking lama
+            session.history = [{ role: 'user', content: message }];
+            const extractedBooking = await (0, ai_service_1.extractBookingFromChat)(message, catalogContext, []);
             if (!extractedBooking.layanan_dipilih || extractedBooking.layanan_dipilih.length === 0) {
                 console.log(`⚠️ [Worker] Pasien berniat booking tetapi tidak ada treatment yang cocok dengan katalog.`);
                 replyText = `🤖 Halo Kak! Kami mendeteksi Kakak ingin melakukan reservasi perawatan, tetapi jenis treatment yang disebutkan belum tersedia di katalog kami.\n\n*Berikut Perawatan Kecantikan yang Tersedia:* \n${catalogContext}\n\nSilakan ketik ulang nama treatment yang Kakak inginkan ya! Terima kasih! 😊✨`;

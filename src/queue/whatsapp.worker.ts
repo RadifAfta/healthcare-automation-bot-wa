@@ -112,13 +112,8 @@ export const whatsappWorker = new Worker<ChatJobData>(
 
       console.log(`👷 [Worker] Perintah reaktivasi bot terdeteksi untuk pasien ${targetPhone}`);
       
-      let targetSession = await sessionService.getSession(targetPhone);
-      if (!targetSession) {
-        targetSession = { step: 'IDLE', history: [] };
-      }
-      targetSession.step = 'IDLE';
-      targetSession.booking = undefined;
-      await sessionService.setSession(targetPhone, targetSession);
+      // Hapus seluruh riwayat dan sesi lama dari Redis/Memori
+      await sessionService.deleteSession(targetPhone);
 
       const patientNotification = `🤖 *Bot AI Klinik Kecantikan Telah Aktif Kembali!* \n\nHalo Kak! Bot AI kami siap melayani informasi treatment, konsultasi tarif, jadwal dokter estetika, dan reservasi perawatan Kakak 24/7. Ada yang bisa kami bantu? 😊✨`;
       await whatsappProvider.sendMessage(targetPhone, patientNotification);
@@ -207,14 +202,10 @@ export const whatsappWorker = new Worker<ChatJobData>(
     // HANDLING GLOBAL INTENT: CANCEL (BATALKAN RESERVASI KLINIK KECANTIKAN)
     // ------------------------------------------------------------------------
     if (intent === 'CANCEL') {
-      console.log(`👷 [Worker] Menerima permintaan pembatalan dari ${sender}`);
-      session.step = 'IDLE';
-      session.booking = undefined;
       replyText = `🤖 Baik Kak, reservasi janji temu perawatan kecantikan Anda saat ini telah dibatalkan. Jika ingin melakukan reservasi treatment di lain waktu, cukup ketik kembali perawatan yang diinginkan ya Kak. Terima kasih! 😊✨`;
       await whatsappProvider.sendMessage(sender, replyText);
-      session.history.push({ role: 'assistant', content: replyText });
-      await sessionService.setSession(sender, session);
-      console.log(`👷 [Worker] Reservasi dibatalkan & sesi direset ke IDLE untuk ${sender}\n`);
+      await sessionService.deleteSession(sender);
+      console.log(`👷 [Worker] Reservasi dibatalkan & sesi dihapus bersih untuk ${sender}\n`);
       return;
     }
 
@@ -360,10 +351,8 @@ export const whatsappWorker = new Worker<ChatJobData>(
           await whatsappProvider.sendMessage(sender, replyText);
           session.history.push({ role: 'assistant', content: replyText });
           
-          session.step = 'IDLE';
-          session.booking = undefined;
-          await sessionService.setSession(sender, session);
-          console.log(`👷 [Worker] Reservasi klinik kecantikan selesai & ditulis ke Google Sheets untuk ${sender}`);
+          await sessionService.deleteSession(sender);
+          console.log(`👷 [Worker] Reservasi klinik kecantikan selesai & sesi dihapus bersih untuk ${sender}`);
         }
         return;
       }
@@ -412,7 +401,9 @@ export const whatsappWorker = new Worker<ChatJobData>(
     if (session.step === 'IDLE') {
       if (intent === 'BOOKING') {
         console.log(`👷 [Worker] Memproses pendaftaran reservasi klinik kecantikan baru...`);
-        const extractedBooking = await extractBookingFromChat(message, catalogContext, session.history);
+        // Reset riwayat chat untuk reservasi baru agar tidak terkontaminasi data booking lama
+        session.history = [{ role: 'user', content: message }];
+        const extractedBooking = await extractBookingFromChat(message, catalogContext, []);
         
         if (!extractedBooking.layanan_dipilih || extractedBooking.layanan_dipilih.length === 0) {
           console.log(`⚠️ [Worker] Pasien berniat booking tetapi tidak ada treatment yang cocok dengan katalog.`);
