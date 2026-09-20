@@ -230,6 +230,13 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
             session.history.push({ role: 'assistant', content: replyText });
             await session_service_1.sessionService.setSession(sender, session);
         }
+        else {
+            session.step = 'IDLE';
+            replyText = `🤖 Halo Kak! Silakan sebutkan perawatan kecantikan yang ingin Kakak reservasi ya. 😊✨`;
+            await whatsappProvider.sendMessage(sender, replyText);
+            session.history.push({ role: 'assistant', content: replyText });
+            await session_service_1.sessionService.setSession(sender, session);
+        }
         return;
     }
     // B. STATE: AWAITING_DATE_TIME (MENUNGGU TANGGAL & JAM KEDATANGAN)
@@ -288,6 +295,13 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
             session.history.push({ role: 'assistant', content: replyText });
             await session_service_1.sessionService.setSession(sender, session);
         }
+        else {
+            session.step = 'IDLE';
+            replyText = `🤖 Halo Kak! Silakan sebutkan perawatan kecantikan yang ingin Kakak reservasi ya. 😊✨`;
+            await whatsappProvider.sendMessage(sender, replyText);
+            session.history.push({ role: 'assistant', content: replyText });
+            await session_service_1.sessionService.setSession(sender, session);
+        }
         return;
     }
     // C. STATE: AWAITING_CONFIRMATION (MENUNGGU KONFIRMASI FINAL)
@@ -331,6 +345,18 @@ exports.whatsappWorker = new bullmq_1.Worker(whatsapp_queue_1.WHATSAPP_QUEUE_NAM
             await session_service_1.sessionService.setSession(sender, session);
             return;
         }
+        // Fallback jika pengguna mengirim teks lain (sapaan/pesan umum) saat masih menunggu konfirmasi
+        if (session.booking) {
+            replyText = `🤖 Halo Kak! Rincian reservasi janji temu perawatan kecantikan Kakak sebelumnya masih menunggu konfirmasi nih:\n\n${renderBookingRecap(session.booking, cleanSenderPhone)}\n\n*(Ketik **Ya** untuk konfirmasi, ketik perubahan treatment jika ingin ganti, atau ketik **Batal** untuk membatalkan).* 😊✨`;
+        }
+        else {
+            session.step = 'IDLE';
+            replyText = `🤖 Halo Kak! Ada yang bisa kami bantu seputar informasi treatment kecantikan atau reservasi jadwal dokter? 😊✨`;
+        }
+        await whatsappProvider.sendMessage(sender, replyText);
+        session.history.push({ role: 'assistant', content: replyText });
+        await session_service_1.sessionService.setSession(sender, session);
+        return;
     }
     // D. STATE: IDLE (TIDAK ADA RESERVASI AKTIF)
     if (session.step === 'IDLE') {
