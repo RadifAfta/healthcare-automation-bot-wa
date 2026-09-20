@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.checkSlotAvailability = exports.formatDoctorScheduleContext = exports.getExistingBookingsFromSheet = exports.getDoctorSchedulesFromSheet = exports.parseTimeToMinutes = exports.extractDayFromDateString = exports.appendBookingToSheet = exports.getCatalogFromSheet = exports.FALLBACK_DOCTOR_SCHEDULES = exports.FALLBACK_CLINIC_CATALOG = void 0;
+exports.checkSlotAvailability = exports.extractDoctorCoreName = exports.formatDoctorScheduleContext = exports.getExistingBookingsFromSheet = exports.getDoctorSchedulesFromSheet = exports.parseTimeToMinutes = exports.extractDayFromDateString = exports.appendBookingToSheet = exports.getCatalogFromSheet = exports.FALLBACK_DOCTOR_SCHEDULES = exports.FALLBACK_CLINIC_CATALOG = void 0;
 const googleapis_1 = require("googleapis");
 const env_1 = require("../config/env");
 // Katalog cadangan (fallback) khusus Klinik Kecantikan & Estetika (Beauty Clinic)
@@ -358,6 +358,23 @@ exports.formatDoctorScheduleContext = formatDoctorScheduleContext;
 /**
  * Service cerdas untuk memvalidasi ketersediaan jadwal dokter dan mendeteksi bentrok slot reservasi.
  */
+/**
+ * Helper untuk mengekstrak nama inti dokter (menghapus gelar depan dr./drg. dan gelar spesialis Sp.XXX)
+ */
+const extractDoctorCoreName = (name) => {
+    if (!name)
+        return '';
+    return name
+        .toLowerCase()
+        .replace(/\b(drg\.|dr\.|drg|dr|sp\.[a-z]+|sp[a-z]+|\(aesthetic doctor\)|\(aesthetic\)|aesthetic doctor)\b/gi, '')
+        .replace(/[^a-z0-9]/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+};
+exports.extractDoctorCoreName = extractDoctorCoreName;
+/**
+ * Service cerdas untuk memvalidasi ketersediaan jadwal dokter dan mendeteksi bentrok slot reservasi.
+ */
 const checkSlotAvailability = async (tanggalStr, jamStr, dokterRequested, defaultDoctorFromCatalog) => {
     const reqMinutes = (0, exports.parseTimeToMinutes)(jamStr);
     const dayName = (0, exports.extractDayFromDateString)(tanggalStr);
@@ -394,7 +411,7 @@ const checkSlotAvailability = async (tanggalStr, jamStr, dokterRequested, defaul
         return {
             isAvailable: false,
             reason: 'DOCTOR_NOT_ON_DUTY',
-            message: `Mohon maaf Kak, pada hari *${dayName || tanggalStr}* pukul *${jamStr}* belum ada dokter estetika kami yang berpraktek. Jam praktek dokter tersedia antara **09:00 - 20:00 WIB**. Apakah Kakak berkenan memilih jam slot lainnya? 😊`,
+            message: `Mohon maaf Kak, pada hari *${dayName || tanggalStr}* pukul *${jamStr}* belum ada dokter yang berpraktek. Jam praktek dokter tersedia antara **09:00 - 20:00 WIB**. Apakah Kakak berkenan memilih jam slot lainnya? 😊`,
         };
     }
     // Cek booking yang bentrok di tanggal & jam yang sama
@@ -407,26 +424,43 @@ const checkSlotAvailability = async (tanggalStr, jamStr, dokterRequested, defaul
         const isSameTime = Math.abs(bMinutes - reqMinutes) < 45;
         return isSameDate && isSameTime;
     });
-    // Tentukan target dokter (bisa diminta spesifik oleh pasien, atau dokter default tindakan)
-    const cleanRequestedDoctor = (dokterRequested && dokterRequested.trim() !== '-' ? dokterRequested : (defaultDoctorFromCatalog || '')).trim().toLowerCase();
-    // Hitung dokter yang masih KOSONG (available) pada slot ini
+    // Hitung dokter yang masih KOSONG (available) pada slot jam ini
     const availableDoctors = onDutyDoctors.filter((doc) => {
-        const bookingsCount = conflictingBookings.filter((b) => b.dokter_pilihan.toLowerCase().includes(doc.dokter.toLowerCase()) || doc.dokter.toLowerCase().includes(b.dokter_pilihan.toLowerCase())).length;
+        const docCore = (0, exports.extractDoctorCoreName)(doc.dokter);
+        const bookingsCount = conflictingBookings.filter((b) => {
+            const bCore = (0, exports.extractDoctorCoreName)(b.dokter_pilihan);
+            return (docCore && bCore && (docCore.includes(bCore) || bCore.includes(docCore)))
+                || b.dokter_pilihan.toLowerCase().includes(doc.dokter.toLowerCase())
+                || doc.dokter.toLowerCase().includes(b.dokter_pilihan.toLowerCase());
+        }).length;
         return bookingsCount < doc.kuotaPerJam;
     });
-    // KASUS A: Pasien meminta dokter spesifik ATAU tindakan memiliki dokter spesifik
-    if (cleanRequestedDoctor && cleanRequestedDoctor !== 'tim dokter estetika') {
-        const targetDocSchedule = onDutyDoctors.find((d) => d.dokter.toLowerCase().includes(cleanRequestedDoctor) || cleanRequestedDoctor.includes(d.dokter.toLowerCase()));
+    // Apakah pasien secara EKSPLISIT meminta dokter tertentu di chat (misal "sama dr. amanda")?
+    const isExplicitDoctorRequest = Boolean(dokterRequested && dokterRequested.trim() !== '' && dokterRequested.trim() !== '-');
+    // KASUS A: Pasien SECARA EKSPLISIT meminta dokter tertentu
+    if (isExplicitDoctorRequest && dokterRequested) {
+        const reqCore = (0, exports.extractDoctorCoreName)(dokterRequested);
+        const targetDocSchedule = onDutyDoctors.find((d) => {
+            const dCore = (0, exports.extractDoctorCoreName)(d.dokter);
+            return (reqCore && dCore && (reqCore.includes(dCore) || dCore.includes(reqCore)))
+                || d.dokter.toLowerCase().includes(dokterRequested.toLowerCase())
+                || dokterRequested.toLowerCase().includes(d.dokter.toLowerCase());
+        });
         // A1. Dokter yang diminta tidak bertugas di jam tersebut
         if (!targetDocSchedule) {
-            const docGeneralSched = schedules.find((d) => d.dokter.toLowerCase().includes(cleanRequestedDoctor) || cleanRequestedDoctor.includes(d.dokter.toLowerCase()));
+            const docGeneralSched = schedules.find((d) => {
+                const dCore = (0, exports.extractDoctorCoreName)(d.dokter);
+                return (reqCore && dCore && (reqCore.includes(dCore) || dCore.includes(reqCore)))
+                    || d.dokter.toLowerCase().includes(dokterRequested.toLowerCase())
+                    || dokterRequested.toLowerCase().includes(d.dokter.toLowerCase());
+            });
             const dutyInfo = docGeneralSched ? `Hari ${docGeneralSched.hari.join(', ')} (Pukul ${docGeneralSched.jamMulai} - ${docGeneralSched.jamSelesai} WIB)` : 'jadwal tertentu';
             const altDoctors = availableDoctors.map((d) => d.dokter).join(', ');
             if (availableDoctors.length > 0) {
                 return {
                     isAvailable: false,
                     reason: 'DOCTOR_NOT_ON_DUTY',
-                    message: `Mohon maaf Kak, dokter pilihan Kakak (${cleanRequestedDoctor}) tidak ada jadwal praktek di jam *${jamStr}* (Jadwal praktek beliau: *${dutyInfo}*).\n\nNamun di jam *${jamStr}*, dokter **${altDoctors}** masih bertugas dan tersedia! ✨\n\nApakah Kakak bersedia ditangani oleh **${altDoctors}**, atau ingin mengganti jam lain dengan dokter pilihan Kakak? 😊`,
+                    message: `Mohon maaf Kak, ${dokterRequested} tidak ada jadwal praktek di hari *${dayName || tanggalStr}* jam *${jamStr}* (Jadwal praktek beliau: *${dutyInfo}*).\n\nNamun di jam *${jamStr}*, dokter **${altDoctors}** masih bertugas dan tersedia! ✨\n\nApakah Kakak bersedia ditangani oleh **${altDoctors}**, atau ingin mengganti hari/jam lain bersama ${dokterRequested}? 😊`,
                     availableDoctorsAtSameTime: availableDoctors.map((d) => d.dokter),
                 };
             }
@@ -434,14 +468,18 @@ const checkSlotAvailability = async (tanggalStr, jamStr, dokterRequested, defaul
                 return {
                     isAvailable: false,
                     reason: 'DOCTOR_NOT_ON_DUTY',
-                    message: `Mohon maaf Kak, dokter pilihan Kakak tidak berpraktek di jam tersebut. Jadwal beliau: *${dutyInfo}*. Apakah Kakak berkenan memilih hari atau jam lain? 😊`,
+                    message: `Mohon maaf Kak, ${dokterRequested} tidak berpraktek di hari/jam tersebut. Jadwal beliau: *${dutyInfo}*. Apakah Kakak berkenan memilih hari atau jam lain? 😊`,
                 };
             }
         }
         // A2. Dokter yang diminta BERTUGAS, tapi SUDAH TER-BOOKING oleh pasien lain!
-        const isTargetDocAvailable = availableDoctors.some((d) => d.dokter.toLowerCase().includes(cleanRequestedDoctor) || cleanRequestedDoctor.includes(d.dokter.toLowerCase()));
+        const isTargetDocAvailable = availableDoctors.some((d) => {
+            const dCore = (0, exports.extractDoctorCoreName)(d.dokter);
+            return (reqCore && dCore && (reqCore.includes(dCore) || dCore.includes(reqCore)))
+                || d.dokter.toLowerCase().includes(dokterRequested.toLowerCase())
+                || dokterRequested.toLowerCase().includes(d.dokter.toLowerCase());
+        });
         if (!isTargetDocAvailable) {
-            // Ada dokter lain yang kosong di jam yang sama?
             if (availableDoctors.length > 0) {
                 const altDoctorName = availableDoctors[0].dokter;
                 return {
@@ -452,11 +490,10 @@ const checkSlotAvailability = async (tanggalStr, jamStr, dokterRequested, defaul
                 };
             }
             else {
-                // Semua dokter penuh di jam ini
                 return {
                     isAvailable: false,
                     reason: 'ALL_DOCTORS_FULL',
-                    message: `Mohon maaf Kak, seluruh slot dokter untuk jam *${jamStr}* pada hari *${tanggalStr}* sudah terisi penuh oleh pasien lain. 🌸\n\nSlot yang masih tersedia ada di jam sebelum atau sesudahnya (misal: *14:00 WIB* atau *16:30 WIB*). Kakak berkenan mengambil jam berapa? 😊`,
+                    message: `Mohon maaf Kak, seluruh slot dokter untuk jam *${jamStr}* pada hari *${tanggalStr}* sudah terisi penuh oleh pasien lain. 🌸\n\nSlot yang masih tersedia ada di jam sebelum atau sesudahnya. Kakak berkenan mengambil jam berapa? 😊`,
                 };
             }
         }
@@ -468,7 +505,26 @@ const checkSlotAvailability = async (tanggalStr, jamStr, dokterRequested, defaul
             message: 'Slot jadwal dokter tersedia.',
         };
     }
-    // KASUS B: Pasien tidak meminta dokter spesifik
+    // KASUS B: Pasien TIDAK meminta dokter spesifik (Hanya memilih tindakan/treatment)
+    // 1. Cek apakah dokter bawaan katalog sedang bertugas dan masih kosong
+    if (defaultDoctorFromCatalog && defaultDoctorFromCatalog.trim() !== '' && defaultDoctorFromCatalog !== 'Tim Dokter Estetika' && defaultDoctorFromCatalog !== 'Tim Dokter Gigi') {
+        const defaultCore = (0, exports.extractDoctorCoreName)(defaultDoctorFromCatalog);
+        const matchedDefaultAvailable = availableDoctors.find((d) => {
+            const dCore = (0, exports.extractDoctorCoreName)(d.dokter);
+            return (defaultCore && dCore && (defaultCore.includes(dCore) || dCore.includes(defaultCore)))
+                || d.dokter.toLowerCase().includes(defaultDoctorFromCatalog.toLowerCase())
+                || defaultDoctorFromCatalog.toLowerCase().includes(d.dokter.toLowerCase());
+        });
+        if (matchedDefaultAvailable) {
+            return {
+                isAvailable: true,
+                reason: 'AVAILABLE',
+                assignedDoctor: matchedDefaultAvailable.dokter,
+                message: 'Slot jadwal tersedia.',
+            };
+        }
+    }
+    // 2. Jika dokter bawaan katalog tidak bertugas hari itu, gunakan dokter lain yang SEDANG BERTUGAS dan KOSONG
     if (availableDoctors.length > 0) {
         return {
             isAvailable: true,
@@ -477,11 +533,11 @@ const checkSlotAvailability = async (tanggalStr, jamStr, dokterRequested, defaul
             message: 'Slot jadwal tersedia.',
         };
     }
-    // KASUS C: Seluruh dokter penuh di jam tersebut
+    // 3. Jika seluruh dokter penuh di jam tersebut
     return {
         isAvailable: false,
         reason: 'ALL_DOCTORS_FULL',
-        message: `Mohon maaf Kak, seluruh slot perawatan di jam *${jamStr}* pada *${tanggalStr}* sudah terisi penuh oleh pasien lain. 🌸\n\nApakah Kakak berkenan memilih jam slot lainnya yang masih kosong? 😊`,
+        message: `Mohon maaf Kak, seluruh slot perawatan di jam *${jamStr}* pada hari *${tanggalStr}* sudah terisi penuh oleh pasien lain. 🌸\n\nApakah Kakak berkenan memilih jam slot lainnya yang masih kosong? 😊`,
     };
 };
 exports.checkSlotAvailability = checkSlotAvailability;
