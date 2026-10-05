@@ -383,7 +383,7 @@ const checkSlotAvailability = async (tanggalStr, jamStr, dokterRequested, defaul
         return {
             isAvailable: false,
             reason: 'CLINIC_CLOSED_DAY',
-            message: `Mohon maaf Kak, klinik kami tutup pada hari **Minggu**. Jam operasional kami adalah **Senin - Sabtu, 09:00 - 20:00 WIB**. Silakan memilih jadwal di hari Senin sampai Sabtu ya Kak! 😊✨`,
+            message: `Mohon maaf Kak, klinik kami tutup pada hari *Minggu*. Jam operasional kami adalah *Senin - Sabtu, 09:00 - 20:00 WIB*. Silakan memilih jadwal di hari Senin sampai Sabtu ya Kak! 😊✨`,
         };
     }
     // 2. Validasi Jam Operasional (09:00 - 20:00 WIB)
@@ -391,7 +391,7 @@ const checkSlotAvailability = async (tanggalStr, jamStr, dokterRequested, defaul
         return {
             isAvailable: false,
             reason: 'OUTSIDE_OPERATING_HOURS',
-            message: `Mohon maaf Kak, klinik kami beroperasi pukul **09:00 - 20:00 WIB**. Untuk jam *${jamStr}* klinik sudah tutup. Apakah Kakak bersedia di jam operasional kami, misalnya jam *10:00 WIB*, *14:00 WIB*, atau *19:00 WIB*? 😊`,
+            message: `Mohon maaf Kak, klinik kami beroperasi pukul *09:00 - 20:00 WIB*. Untuk jam *${jamStr}* klinik sudah tutup. Apakah Kakak bersedia di jam operasional kami, misalnya jam *10:00 WIB*, *14:00 WIB*, atau *19:00 WIB*? 😊`,
         };
     }
     // 3. Ambil Jadwal Dokter & Riwayat Booking Aktif
@@ -411,7 +411,7 @@ const checkSlotAvailability = async (tanggalStr, jamStr, dokterRequested, defaul
         return {
             isAvailable: false,
             reason: 'DOCTOR_NOT_ON_DUTY',
-            message: `Mohon maaf Kak, pada hari *${dayName || tanggalStr}* pukul *${jamStr}* belum ada dokter yang berpraktek. Jam praktek dokter tersedia antara **09:00 - 20:00 WIB**. Apakah Kakak berkenan memilih jam slot lainnya? 😊`,
+            message: `Mohon maaf Kak, pada hari *${dayName || tanggalStr}* pukul *${jamStr}* belum ada dokter yang berpraktek. Jam praktek dokter tersedia antara *09:00 - 20:00 WIB*. Apakah Kakak berkenan memilih jam slot lainnya? 😊`,
         };
     }
     // Cek booking yang bentrok di tanggal & jam yang sama
@@ -460,7 +460,7 @@ const checkSlotAvailability = async (tanggalStr, jamStr, dokterRequested, defaul
                 return {
                     isAvailable: false,
                     reason: 'DOCTOR_NOT_ON_DUTY',
-                    message: `Mohon maaf Kak, ${dokterRequested} tidak ada jadwal praktek di hari *${dayName || tanggalStr}* jam *${jamStr}* (Jadwal praktek beliau: *${dutyInfo}*).\n\nNamun di jam *${jamStr}*, dokter **${altDoctors}** masih bertugas dan tersedia! ✨\n\nApakah Kakak bersedia ditangani oleh **${altDoctors}**, atau ingin mengganti hari/jam lain bersama ${dokterRequested}? 😊`,
+                    message: `Mohon maaf Kak, ${dokterRequested} tidak ada jadwal praktek di hari *${dayName || tanggalStr}* jam *${jamStr}* (Jadwal praktek beliau: *${dutyInfo}*).\n\nNamun di jam *${jamStr}*, dokter *${altDoctors}* masih bertugas dan tersedia! ✨\n\nApakah Kakak bersedia ditangani oleh *${altDoctors}*, atau ingin mengganti hari/jam lain bersama ${dokterRequested}? 😊`,
                     availableDoctorsAtSameTime: availableDoctors.map((d) => d.dokter),
                 };
             }
@@ -485,7 +485,7 @@ const checkSlotAvailability = async (tanggalStr, jamStr, dokterRequested, defaul
                 return {
                     isAvailable: false,
                     reason: 'DOCTOR_ALREADY_BOOKED',
-                    message: `Mohon maaf Kak, untuk jam *${jamStr}* jadwal **${targetDocSchedule.dokter}** sudah terisi oleh pasien lain.\n\nNamun di jam yang sama (*${jamStr}*), dokter **${altDoctorName}** masih ada slot kosong lho! ✨\n\nApakah Kakak bersedia dijadwalkan dengan **${altDoctorName}**, atau ingin memilih jam slot lain bersama **${targetDocSchedule.dokter}**? 😊`,
+                    message: `Mohon maaf Kak, untuk jam *${jamStr}* jadwal *${targetDocSchedule.dokter}* sudah terisi oleh pasien lain.\n\nNamun di jam yang sama (*${jamStr}*), dokter *${altDoctorName}* masih ada slot kosong lho! ✨\n\nApakah Kakak bersedia dijadwalkan dengan *${altDoctorName}*, atau ingin memilih jam slot lain bersama *${targetDocSchedule.dokter}*? 😊`,
                     availableDoctorsAtSameTime: availableDoctors.map((d) => d.dokter),
                 };
             }

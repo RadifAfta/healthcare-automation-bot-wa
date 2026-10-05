@@ -63,7 +63,14 @@ exports.client.on('message_create', async (msg) => {
     const isPersonalChat = msg.from.endsWith('@c.us') || msg.from.endsWith('@lid');
     if (isPersonalChat) {
         // 1. Cegah infinite loop dengan mengabaikan pesan balasan otomatis dari bot kita sendiri
-        const isAutomatedReply = msg.body.startsWith('🤖') || msg.body.startsWith('Halo! Pesanan kamu');
+        const isAutomatedReply = msg.body.startsWith('🤖') ||
+            msg.body.includes('KARTU RESERVASI') ||
+            msg.body.includes('Layanan Otomatis') ||
+            msg.body.includes('Reservasi Perawatan Berhasil') ||
+            msg.body.includes('Selamat datang di Klinik') ||
+            msg.body.startsWith('✅ *') ||
+            msg.body.startsWith('⚠️ *') ||
+            msg.body.startsWith('🚨 *');
         if (isAutomatedReply) {
             console.log('   ℹ️ Mengabaikan pesan balasan otomatis untuk mencegah loop.');
             return;

@@ -74,6 +74,10 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
     try {
       console.log(`📡 [Meta Cloud API] Mengirim pesan ke ${recipientPhone}...`);
 
+      // Simulasi delay mengetik manusiawi proporsional terhadap panjang teks (1.5 - 3.5 detik)
+      const delayMs = Math.min(Math.max(decodedMessage.length * 25, 1500), 3500);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {

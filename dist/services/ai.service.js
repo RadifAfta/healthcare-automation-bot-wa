@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.extractBookingFromChat = exports.cleanPatientName = exports.answerInquiry = exports.classifyIntent = void 0;
+exports.extractBookingFromChat = exports.cleanPatientName = exports.answerInquiry = exports.formatWhatsAppText = exports.classifyIntent = void 0;
 const groq_sdk_1 = __importDefault(require("groq-sdk"));
 const env_1 = require("../config/env");
 // Inisialisasi Groq client menggunakan API Key yang sudah divalidasi Zod
@@ -65,32 +65,52 @@ Struktur JSON yang wajib kamu kembalikan harus memiliki key berikut:
 };
 exports.classifyIntent = classifyIntent;
 /**
- * Service untuk menjawab pertanyaan umum pasien (INQUIRY / FAQ) Klinik Kecantikan secara ramah, profesional, & empatik.
+ * Helper untuk membersihkan dan menstandarisasi format pesan WhatsApp (menghapus robot emoji, double asterisk, dan AI slop)
+ */
+const formatWhatsAppText = (text) => {
+    if (!text)
+        return '';
+    return text
+        // Hilangkan semua emoji robot atau cyborg
+        .replace(/[🤖🦾]/gu, '')
+        // Ganti double asterisk markdown (**teks**) menjadi single asterisk WhatsApp (*teks*)
+        .replace(/\*\*(.*?)\*\*/g, '*$1*')
+        // Hilangkan kalimat pembuka AI klise / generic slop
+        .replace(/^sebagai (asisten|beauty consultant|ai)[^,.!?\n]*[,.!?\n]\s*/i, '')
+        .replace(/^(tentu saja,?|tentu kak,?|tentu,)\s*/i, '')
+        .trim();
+};
+exports.formatWhatsAppText = formatWhatsAppText;
+/**
+ * Service untuk menjawab pertanyaan umum pasien (INQUIRY / FAQ) Klinik Kecantikan secara ramah, profesional, & natural.
  */
 const answerInquiry = async (message, catalogContext, doctorScheduleContext = '', history = []) => {
     try {
         const doctorScheduleBlock = doctorScheduleContext
             ? `\nJadwal Praktek Dokter Estetika Terkini:\n${doctorScheduleContext}\n`
             : '';
-        const systemPrompt = `Kamu adalah Beauty Consultant & Customer Service AI (Resepsionis) yang ramah, sopan, empatik, dan profesional khusus untuk Klinik Kecantikan & Estetika (Beauty & Aesthetic Clinic).
-Tugasmu adalah menjawab pertanyaan pasien/klien (Inquiry/FAQ) seputar perawatan kecantikan, keluhan kulit, jadwal praktek dokter estetika, dan jadwal treatment secara singkat, jelas, dan membantu berdasarkan konteks katalog treatment & jadwal dokter berikut:
+        const systemPrompt = `Kamu adalah Customer Service & Beauty Consultant resmi di Klinik Kecantikan & Estetika.
+Tugasmu: Menjawab pertanyaan pasien/klien secara natural, ramah, to-the-point, dan santun layaknya staf klinik profesional sungguhan melalui WhatsApp.
 
-Katalog Perawatan & Tarif Klinik Kecantikan Aktif:
+Katalog Perawatan & Tarif Klinik:
 ${catalogContext}
 ${doctorScheduleBlock}
-Informasi Umum Klinik Kecantikan & Estetika:
+Informasi Umum Klinik:
 - Jam Operasional: Senin - Sabtu, 09:00 - 20:00 WIB (Minggu & Libur Nasional Tutup)
-- Lokasi Klinik: Jl. Kesehatan Raya No. 88, Jakarta (Dekat Pusat Kota)
-- Fasilitas: Ruang Treatment Nyaman & Higienis, Alat Estetika Medis Modern, Dokter Estetika Bersertifikasi / Sp.DVE, Ruang Tunggu Eksklusif & AC
-- Metode Pembayaran: Cash, QRIS, Transfer Bank, & Kartu Kredit
+- Lokasi Klinik: Jl. Kesehatan Raya No. 88, Jakarta
+- Pembayaran: Cash, QRIS, Transfer Bank, & Kartu Debit/Kredit
 
-Aturan Komunikasi:
-- Gunakan bahasa Indonesia yang santun, ramah, dan khas beauty consultant (gunakan sapaan "Kak" atau "Kakak").
-- Berikan penjelasan manfaat treatment secara ringkas dan solutif jika klien menanyakan solusi keluhan kulit (misal kulit kusam direkomendasikan facial brightening / laser glowing; jerawat direkomendasikan acne care / chemical peeling).
-- Jika menanyakan harga tindakan kecantikan / dokter estetika / jadwal dokter, jawab secara presisi sesuai katalog & jadwal dokter aktif di atas.
-- Jika menanyakan perawatan yang tidak ada di katalog, katakan dengan sopan bahwa layanan tersebut saat ini belum tersedia di klinik kami.
-- Jangan memberikan resep obat keras tanpa pengawasan dokter, sarankan pasien untuk datang konsultasi & skin analysis langsung dengan dokter estetika kami.
-- Maksimal 3-4 kalimat. Akhiri dengan sapaan ramah dan emotikon cantik (😊✨🌸).`;
+Aturan Penulisan Pesan WhatsApp & Adaptasi Gaya (SANGAT PENTING):
+1. Adaptasi Gaya Pasien (Tone & Style Mirroring):
+   - Perhatikan gaya bahasa pasien pada chat:
+     • Jika pasien santai, gaul, atau memakai singkatan chat (misal: "min", "brp", "bsk", "kpn", "rekomen dong"), balas dengan nada ramah, hangat, dan luwes khas beauty clinic kekinian tanpa kaku.
+     • Jika pasien berbahasa baku/formal, balas dengan gaya yang lebih rapi, elegan, dan santun.
+2. Gaya Bahasa Alami: Jangan terdengar seperti robot, bot penjawab otomatis, atau AI generik. Hindari kalimat klise ("Sebagai AI...", "Tentu saya siap membantu..."). Variasikan awalan dan akhiran kalimat agar tidak monoton.
+3. Format WhatsApp: Gunakan format yang rapi. DILARANG menggunakan tanda bintang ganda (**). Untuk menebalkan kata, HANYA gunakan satu bintang (*kata*).
+4. DILARANG KERAS menggunakan emotikon robot (🤖). Gunakan emoji natural secukupnya (😊, ✨, 🙏).
+5. Keringkasan: Maksimal 2-3 kalimat yang padat, jelas, dan solutif.
+6. Berikan estimasi harga/jadwal secara presisi sesuai data katalog dan jadwal dokter di atas.
+7. Jika menanyakan perawatan yang tidak ada di katalog, sampaikan dengan santun bahwa layanan tersebut saat ini belum tersedia di klinik.`;
         const formattedMessages = [
             {
                 role: 'system',
@@ -108,9 +128,10 @@ Aturan Komunikasi:
         const response = await groq.chat.completions.create({
             model: env_1.env.GROQ_MODEL,
             messages: formattedMessages,
-            temperature: 0.4,
+            temperature: 0.45,
         });
-        return response.choices[0]?.message?.content || 'Halo Kak! Ada yang bisa kami bantu seputar informasi perawatan kulit dan konsultasi kecantikan di klinik kami? 😊✨';
+        const rawReply = response.choices[0]?.message?.content || 'Halo Kak! Ada yang bisa kami bantu seputar info perawatan kulit dan konsultasi kecantikan di klinik kami? 😊✨';
+        return (0, exports.formatWhatsAppText)(rawReply);
     }
     catch (error) {
         console.error('❌ [AI Service] Gagal menyusun balasan inquiry:', error);
