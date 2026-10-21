@@ -74,8 +74,8 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
     try {
       console.log(`📡 [Meta Cloud API] Mengirim pesan ke ${recipientPhone}...`);
 
-      // Simulasi delay mengetik manusiawi proporsional terhadap panjang teks (1.5 - 3.5 detik)
-      const delayMs = Math.min(Math.max(decodedMessage.length * 25, 1500), 3500);
+      // Mikro-delay halus (100-300ms) agar pengiriman natural tanpa menyumbat throughput antrean worker
+      const delayMs = Math.min(Math.max(decodedMessage.length * 2, 100), 300);
       await new Promise((resolve) => setTimeout(resolve, delayMs));
 
       const response = await fetch(endpoint, {
@@ -99,6 +99,67 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
     } catch (error: any) {
       console.error(`💥 [Meta Cloud API Error] Gagal mengirim pesan ke ${recipientPhone}:`, error.message || error);
       throw error;
+    }
+  }
+
+  /**
+   * Meneruskan media (Foto, Audio, Dokumen, Video) langsung ke WhatsApp Admin menggunakan Media ID Meta
+   */
+  async sendMedia(
+    to: string,
+    mediaType: 'image' | 'audio' | 'document' | 'video',
+    mediaId: string,
+    caption?: string
+  ): Promise<void> {
+    const recipientPhone = normalizePhoneNumber(to);
+
+    if (!this.phoneNumberId || !this.accessToken) {
+      console.warn('⚠️ [Meta Cloud API] Kredensial Meta belum diisi, melewati penerusan fisik media.');
+      console.log(`📎 [Simulasi Kirim Media] Ke: ${recipientPhone} | Tipe: ${mediaType} | ID: ${mediaId}`);
+      return;
+    }
+
+    const isUrl = mediaId.startsWith('http://') || mediaId.startsWith('https://');
+    const isNumericId = /^\d+$/.test(mediaId);
+
+    if (!isUrl && !isNumericId) {
+      console.warn(`⚠️ [Meta Cloud API] Media ID "${mediaId}" bukan numerik resmi Meta atau URL valid. Melewati pengiriman payload media fisik.`);
+      return;
+    }
+
+    const endpoint = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}/messages`;
+    const mediaPayloadObj: any = isUrl ? { link: mediaId } : { id: mediaId };
+    if (caption && mediaType !== 'audio') {
+      mediaPayloadObj.caption = caption;
+    }
+
+    const payload: any = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: recipientPhone,
+      type: mediaType,
+      [mediaType]: mediaPayloadObj,
+    };
+
+    try {
+      console.log(`📡 [Meta Cloud API] Meneruskan media (${mediaType}) ke WA Admin ${recipientPhone}...`);
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const responseData: any = await response.json();
+      if (!response.ok) {
+        console.error(`❌ [Meta Cloud API] Gagal meneruskan media HTTP ${response.status}:`, responseData);
+      } else {
+        console.log(`✅ [Meta Cloud API] Fisik media sukses diteruskan ke WA Admin ${recipientPhone}`);
+      }
+    } catch (error: any) {
+      console.error(`💥 [Meta Cloud API] Gagal meneruskan media ke ${recipientPhone}:`, error.message || error);
     }
   }
 }

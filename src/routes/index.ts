@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { verifyWebhook, receiveWhatsappChat } from '../controllers/webhook.controller';
+import { getMediaById } from '../controllers/media.controller';
 
 const router = Router();
 
@@ -23,5 +24,10 @@ router.get('/webhook', verifyWebhook);
  * Endpoint Webhook WhatsApp (POST: Menerima pesan/event dari Meta Cloud API atau testing manual)
  */
 router.post('/webhook', receiveWhatsappChat);
+
+/**
+ * Endpoint Proxy Media (GET: Membuka dan mengunduh foto/audio yang dikirim pasien)
+ */
+router.get('/media/:mediaId', getMediaById);
 
 export default router;

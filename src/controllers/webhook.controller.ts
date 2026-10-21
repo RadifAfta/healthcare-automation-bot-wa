@@ -109,6 +109,7 @@ export const receiveWhatsappChat = async (
 
       for (const msg of messages) {
         const senderPhone = msg.from; // Nomor HP pengirim (misal "628123456789")
+        const messageId = msg.id; // Meta WAMID unik untuk idempotency & deduplikasi
         let messageText = '';
 
         if (msg.type === 'text' && msg.text?.body) {
@@ -118,16 +119,19 @@ export const receiveWhatsappChat = async (
         } else if (msg.type === 'button') {
           messageText = msg.button?.text || '';
         } else {
-          console.log(`ℹ️ [Meta Webhook] Menerima tipe pesan '${msg.type}' dari ${senderPhone}, mengabaikan media non-teks.`);
-          continue;
+          // Penanganan Media Non-Teks (Foto, VN, Lokasi, Stiker, Dokumen) - Cegah Silent Drop!
+          const mediaId = msg[msg.type]?.id ? ` (Media ID: ${msg[msg.type].id})` : '';
+          const mediaCaption = msg[msg.type]?.caption ? ` (Keterangan: "${msg[msg.type].caption}")` : '';
+          messageText = `[MEDIA_${msg.type.toUpperCase()}]${mediaId}${mediaCaption}`;
+          console.log(`📎 [Meta Webhook] Menerima media '${msg.type}' dari ${senderPhone}, mengalihkan ke penanganan antrean.`);
         }
 
         console.log(`\n📥 [Meta Cloud Webhook] Pesan Resmi Masuk!`);
-        console.log(`📱 Pengirim: ${senderPhone}`);
+        console.log(`📱 Pengirim: ${senderPhone} (WAMID: ${messageId || '-'})`);
         console.log(`💬 Teks: "${messageText}"\n`);
 
-        // Masukkan ke antrean BullMQ Redis secara asinkronus
-        await addChatToQueue(senderPhone, messageText);
+        // Masukkan ke antrean BullMQ Redis secara asinkronus dengan proteksi deduplikasi WAMID
+        await addChatToQueue(senderPhone, messageText, messageId);
       }
 
       // Selalu kembalikan HTTP 200 OK dengan cepat ke Meta agar server Meta tidak timeout atau melakukan retry
@@ -145,9 +149,11 @@ export const receiveWhatsappChat = async (
 
       const job = await addChatToQueue(sender, message);
       res.status(200).json({
-        status: 'queued',
-        message: 'Chat pengujian manual berhasil masuk antrean pemrosesan.',
-        jobId: job.id,
+        status: job ? 'queued' : 'duplicate_ignored',
+        message: job
+          ? 'Chat pengujian manual berhasil masuk antrean pemrosesan.'
+          : 'Pesan duplikat diabaikan oleh antrean.',
+        jobId: job?.id || null,
       });
       return;
     }
