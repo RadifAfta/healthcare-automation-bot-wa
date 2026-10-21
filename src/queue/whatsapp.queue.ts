@@ -20,14 +20,27 @@ export const whatsappQueue = new Queue(WHATSAPP_QUEUE_NAME, {
 
 /**
  * Fungsi Producer untuk memasukkan data WhatsApp chat ke dalam antrean Redis.
+ * Mendukung idempotency berbasis WAMID (messageId) dari Meta Cloud API.
  */
-export const addChatToQueue = async (sender: string, message: string) => {
+export const addChatToQueue = async (sender: string, message: string, messageId?: string) => {
   try {
-    // Tambahkan job dengan payload data pengirim dan pesan
-    const job = await whatsappQueue.add('process-chat', { sender, message });
+    // BullMQ melarang karakter ':' di dalam custom jobId
+    const sanitizedJobId = messageId ? `wamid_${messageId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : undefined;
+    const jobOptions = sanitizedJobId
+      ? {
+          jobId: sanitizedJobId,
+        }
+      : undefined;
+
+    // Tambahkan job dengan payload data pengirim, pesan, dan WAMID
+    const job = await whatsappQueue.add('process-chat', { sender, message, messageId }, jobOptions);
     console.log(`📡 [Queue] Job #${job.id} berhasil dimasukkan ke antrean untuk pengirim: ${sender}`);
     return job;
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.message?.includes('already exists') || error?.message?.includes('Job with ID')) {
+      console.warn(`⚠️ [Queue] Pesan duplikat terdeteksi (WAMID: ${messageId}), mengabaikan penambahan ke antrean.`);
+      return null;
+    }
     console.error('❌ [Queue] Gagal memasukkan job ke antrean Redis:', error);
     throw error;
   }

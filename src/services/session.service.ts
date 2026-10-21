@@ -1,6 +1,7 @@
 import Redis from 'ioredis';
 import { env } from '../config/env';
 import { ExtractedBooking, ChatMessage } from './ai.service';
+import { normalizePhoneNumber } from './whatsapp-cloud.service';
 
 // Interface untuk data sesi reservasi klinik dan riwayat obrolan
 export interface BookingSession {
@@ -46,7 +47,8 @@ class SessionService {
   }
 
   private getSessionKey(phone: string): string {
-    return `session:${phone}`;
+    const clean = normalizePhoneNumber(phone);
+    return `session:${clean || phone}`;
   }
 
   /**
@@ -68,12 +70,13 @@ class SessionService {
     }
 
     // Fallback ke Memory Store
-    const record = this.memoryStore.get(phone);
+    const cleanPhone = normalizePhoneNumber(phone) || phone;
+    const record = this.memoryStore.get(cleanPhone);
     if (!record) return null;
 
     // Bersihkan record jika sudah kadaluwarsa
     if (Date.now() > record.expiresAt) {
-      this.memoryStore.delete(phone);
+      this.memoryStore.delete(cleanPhone);
       return null;
     }
 
@@ -97,8 +100,9 @@ class SessionService {
     }
 
     // Fallback ke Memory Store
+    const cleanPhone = normalizePhoneNumber(phone) || phone;
     const expiresAt = Date.now() + ttlSeconds * 1000;
-    this.memoryStore.set(phone, { data: sessionData, expiresAt });
+    this.memoryStore.set(cleanPhone, { data: sessionData, expiresAt });
     console.log(`💾 [Session Service] Sesi tersimpan di Memori Fallback untuk ${phone} (TTL: ${ttlSeconds}s)`);
   }
 
@@ -117,7 +121,8 @@ class SessionService {
       }
     }
 
-    this.memoryStore.delete(phone);
+    const cleanPhone = normalizePhoneNumber(phone) || phone;
+    this.memoryStore.delete(cleanPhone);
     console.log(`🗑️ [Session Service] Sesi dihapus dari Memori Fallback untuk ${phone}`);
   }
 }

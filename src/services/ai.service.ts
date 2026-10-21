@@ -35,6 +35,27 @@ export interface ExtractedBooking {
 }
 
 /**
+ * Helper untuk parsing JSON secara aman, tahan terhadap markdown backticks atau format LLM tidak sempurna
+ */
+export const safeJsonParse = <T>(str: string, fallback: T): T => {
+  try {
+    let clean = (str || '').trim();
+    if (clean.startsWith('```')) {
+      clean = clean.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    }
+    return JSON.parse(clean) as T;
+  } catch (err) {
+    const match = (str || '').match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]) as T;
+      } catch (_) {}
+    }
+    return fallback;
+  }
+};
+
+/**
  * Service untuk mendeteksi niat (intent) dari chat pasien Klinik Kecantikan & Estetika.
  */
 export const classifyIntent = async (message: string, history: ChatMessage[] = []): Promise<IntentType> => {
@@ -82,7 +103,7 @@ Struktur JSON yang wajib kamu kembalikan harus memiliki key berikut:
     });
 
     const rawJsonString = response.choices[0]?.message?.content || '{}';
-    const parsedData: IntentResult = JSON.parse(rawJsonString);
+    const parsedData = safeJsonParse<IntentResult>(rawJsonString, { intent: 'OTHER', explanation: 'Fallback' });
     return parsedData.intent || 'OTHER';
   } catch (error) {
     console.error('❌ [AI Service] Gagal mengklasifikasikan intent chat:', error);
@@ -269,8 +290,17 @@ Kamu WAJIB mengembalikan respon HANYA berupa objek JSON mentah yang valid, tanpa
       temperature: 0.1,
     });
 
+    const fallbackBooking: ExtractedBooking = {
+      nama_pasien: '',
+      nomor_hp: '',
+      layanan_dipilih: [],
+      tanggal_booking: '',
+      jam_booking: '',
+      dokter_pilihan: '-',
+      total_estimasi: 0,
+    };
     const rawJsonString = response.choices[0]?.message?.content || '{}';
-    const parsedData: ExtractedBooking = JSON.parse(rawJsonString);
+    const parsedData = safeJsonParse<ExtractedBooking>(rawJsonString, fallbackBooking);
     return parsedData;
   } catch (error) {
     console.error('❌ [AI Service] Gagal mengekstrak data reservasi klinik kecantikan dari chat:', error);
