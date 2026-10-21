@@ -8,9 +8,11 @@ import {
   getDoctorSchedulesFromSheet,
   formatDoctorScheduleContext,
   checkSlotAvailability,
+  clearSheetsCache,
 } from '../services/sheets.service';
 import { WhatsAppProviderFactory } from '../services/whatsapp-provider.service';
 import { sessionService, BookingSession } from '../services/session.service';
+import { normalizePhoneNumber } from '../services/whatsapp-cloud.service';
 import { env } from '../config/env';
 
 // Definisikan bentuk interface data yang ditangani oleh Job
@@ -89,6 +91,9 @@ const validateAndProceedBooking = async (
 
   if (!slotCheck.isAvailable) {
     booking.jam_booking = ''; // Reset jam agar pasien memilih slot yang valid/tersedia
+    if (slotCheck.reason === 'CLINIC_CLOSED_DAY') {
+      booking.tanggal_booking = ''; // WAJIB mereset tanggal juga agar pasien tidak terjebak di hari Minggu!
+    }
     return {
       step: 'AWAITING_DATE_TIME',
       replyText: slotCheck.message,
@@ -138,14 +143,23 @@ export const whatsappWorker = new Worker<ChatJobData>(
     const cleanMessageLower = cleanMessageTrim.toLowerCase();
 
     // ------------------------------------------------------------------------
-    // 0. PERINTAH KHUSUS ADMIN RELAY VIA WHATSAPP (!balas & !bot-on)
+    // 0. PERINTAH KHUSUS ADMIN RELAY VIA WHATSAPP (!balas, !bot-on, !refresh-cache)
     // ------------------------------------------------------------------------
-    
+    const normalizedSender = normalizePhoneNumber(sender);
+    const normalizedAdmin = normalizePhoneNumber(env.ADMIN_WA_NUMBER);
+    const isAdmin = normalizedAdmin !== '' && normalizedSender === normalizedAdmin;
+
     // A. PERINTAH ADMIN: !balas <nomor_pasien> <pesan_admin>
     if (cleanMessageLower.startsWith('!balas')) {
+      if (!isAdmin) {
+        console.warn(`⛔ [Worker Security] Upaya akses ilegal !balas dari nomor tidak berwenang: ${normalizedSender} (Admin resmi: ${normalizedAdmin || 'Belum diisi'})`);
+        await whatsappProvider.sendMessage(sender, '⛔ *Akses Ditolak:* Perintah ini hanya dapat dijalankan oleh nomor WhatsApp Admin/Resepsionis resmi klinik.');
+        return;
+      }
+
       const parts = cleanMessageTrim.split(/\s+/);
       if (parts.length >= 3) {
-        const targetPhone = parts[1].replace(/[^0-9]/g, '');
+        const targetPhone = normalizePhoneNumber(parts[1]);
         const adminReplyText = parts.slice(2).join(' ');
 
         console.log(`👷 [Worker] Admin ${sender} membalas ke pasien ${targetPhone}: "${adminReplyText}"`);
@@ -171,10 +185,16 @@ export const whatsappWorker = new Worker<ChatJobData>(
 
     // B. PERINTAH ADMIN: !bot-on <nomor_pasien> ATAU !bot-on
     if (cleanMessageLower.startsWith('!bot-on') || cleanMessageLower.startsWith('!reset') || cleanMessageLower.startsWith('!aktif')) {
-      const parts = cleanMessageTrim.split(/\s+/);
-      const targetPhone = parts.length >= 2 ? parts[1].replace(/[^0-9]/g, '') : sender;
+      if (!isAdmin) {
+        console.warn(`⛔ [Worker Security] Upaya akses ilegal !bot-on/reset dari nomor: ${normalizedSender}`);
+        await whatsappProvider.sendMessage(sender, '⛔ *Akses Ditolak:* Perintah ini hanya dapat dijalankan oleh nomor WhatsApp Admin/Resepsionis resmi klinik.');
+        return;
+      }
 
-      console.log(`👷 [Worker] Perintah reaktivasi bot terdeteksi untuk pasien ${targetPhone}`);
+      const parts = cleanMessageTrim.split(/\s+/);
+      const targetPhone = parts.length >= 2 ? normalizePhoneNumber(parts[1]) : normalizedSender;
+
+      console.log(`👷 [Worker] Perintah reaktivasi bot resmi terdeteksi untuk pasien ${targetPhone}`);
       
       // Hapus seluruh riwayat dan sesi lama dari Redis/Memori
       await sessionService.deleteSession(targetPhone);
@@ -182,9 +202,74 @@ export const whatsappWorker = new Worker<ChatJobData>(
       const patientNotification = `*Layanan Otomatis Aktif Kembali*\n\nHalo Kak! Kami siap membantu informasi treatment, estimasi biaya, jadwal dokter estetika, dan reservasi perawatan Kakak. Ada yang bisa kami bantu? 😊✨`;
       await whatsappProvider.sendMessage(targetPhone, patientNotification);
 
-      if (targetPhone !== sender) {
+      if (targetPhone !== normalizedSender) {
         replyText = `✅ *Bot AI Berhasil Diaktifkan Kembali!*\n\n📲 *Nomor Pasien:* ${targetPhone}`;
         await whatsappProvider.sendMessage(sender, replyText);
+      }
+      return;
+    }
+
+    // C. PERINTAH ADMIN: !refresh-cache (Memuat ulang katalog & jadwal dokter dari Sheets secara paksa)
+    if (cleanMessageLower.startsWith('!refresh-cache') || cleanMessageLower.startsWith('!update-katalog')) {
+      if (!isAdmin) {
+        console.warn(`⛔ [Worker Security] Upaya akses ilegal !refresh-cache dari nomor: ${normalizedSender}`);
+        await whatsappProvider.sendMessage(sender, '⛔ *Akses Ditolak:* Perintah ini hanya dapat dijalankan oleh nomor WhatsApp Admin resmi klinik.');
+        return;
+      }
+
+      clearSheetsCache();
+      const [freshCatalog, freshSchedules] = await Promise.all([
+        getCatalogFromSheet(true),
+        getDoctorSchedulesFromSheet(true),
+      ]);
+
+      replyText = `✅ *Cache Google Sheets Berhasil Diperbarui!*\n\n• *Layanan Katalog Terbaca:* ${freshCatalog.length} jenis treatment\n• *Jadwal Dokter Terbaca:* ${freshSchedules.length} dokter praktek`;
+      await whatsappProvider.sendMessage(sender, replyText);
+      return;
+    }
+
+    // ------------------------------------------------------------------------
+    // 0.1 PENANGANAN MEDIA NON-TEKS (FOTO KULIT, VOICE NOTE, LOKASI, DOKUMEN)
+    // ------------------------------------------------------------------------
+    if (message.startsWith('[MEDIA_')) {
+      const mediaTypeMatch = message.match(/^\[MEDIA_([A-Z]+)\]/);
+      const mediaType = mediaTypeMatch ? mediaTypeMatch[1].toLowerCase() : 'media';
+      console.log(`👷 [Worker] Pasien ${sender} mengirim media '${mediaType}'. Menjalankan auto-acknowledgement & handoff admin.`);
+
+      session.step = 'HANDOFF_ADMIN';
+
+      let mediaReply = '';
+      if (mediaType === 'image') {
+        mediaReply = `Halo Kak! Foto kondisi kulit/dokumen Kakak telah kami terima. Karena sistem bot otomatis belum dapat mendiagnosa foto secara langsung, pesan Kakak telah kami teruskan ke tim Dokter Estetika & Beauty Consultant kami. Mohon ditunggu sebentar ya Kak! 🙏✨`;
+      } else if (mediaType === 'audio') {
+        mediaReply = `Halo Kak! Pesan suara (voice note) Kakak telah kami terima dan kami teruskan ke tim Resepsionis/CS kami untuk didengarkan. Tim kami akan segera merespon ya Kak! 🙏✨`;
+      } else if (mediaType === 'location') {
+        mediaReply = `Halo Kak! Lokasi Kakak sudah kami terima. Klinik kami beralamat di Jl. Kesehatan Raya No. 88, Jakarta (Buka Senin-Sabtu 09:00 - 20:00 WIB). Tim kami akan segera membantu petunjuk rute lebih lanjut! 📍✨`;
+      } else {
+        mediaReply = `Halo Kak! File/stiker Kakak telah kami terima dan kami teruskan ke tim klinik kami. Ada yang bisa kami bantu seputar informasi perawatan kulit atau jadwal reservasi klinik kami? 😊✨`;
+      }
+
+      await whatsappProvider.sendMessage(sender, mediaReply);
+      session.history.push({ role: 'assistant', content: mediaReply });
+      await sessionService.setSession(sender, session, 1800);
+
+      if (env.ADMIN_WA_NUMBER && env.ADMIN_WA_NUMBER.trim() !== '') {
+        const patientName = session.booking?.nama_pasien || 'Pasien';
+        const adminAlertText = `🚨 *[MEDIA MASUK DARI PASIEN]*\n\n👤 *Klien:* ${patientName} (${cleanSenderPhone})\n📎 *Tipe Media:* ${mediaType.toUpperCase()}\n💬 *Keterangan:* "${message}"\n\n*Balas via WA:* \`!balas ${cleanSenderPhone} <pesan_anda>\`\n*Aktifkan Bot:* \`!bot-on ${cleanSenderPhone}\``;
+        await whatsappProvider.sendMessage(env.ADMIN_WA_NUMBER, adminAlertText);
+
+        // Ekstrak Media ID jika ada untuk meneruskan file foto/audio fisik langsung ke WhatsApp Admin
+        const mediaIdMatch = message.match(/Media ID:\s*([^\s)]+)/);
+        const extractedMediaId = mediaIdMatch ? mediaIdMatch[1] : '';
+        if (extractedMediaId && whatsappProvider.sendMedia && (mediaType === 'image' || mediaType === 'audio' || mediaType === 'document' || mediaType === 'video')) {
+          console.log(`📡 [Worker] Meneruskan fisik ${mediaType} (ID: ${extractedMediaId}) ke nomor WA Admin...`);
+          await whatsappProvider.sendMedia(
+            env.ADMIN_WA_NUMBER,
+            mediaType as any,
+            extractedMediaId,
+            `📎 ${mediaType.toUpperCase()} dari Klien: ${patientName} (${cleanSenderPhone})`
+          );
+        }
       }
       return;
     }
@@ -392,24 +477,54 @@ export const whatsappWorker = new Worker<ChatJobData>(
         return;
       }
       
-      if (intent === 'BOOKING') {
-        console.log(`👷 [Worker] Mendeteksi perubahan/tambahan treatment dalam AWAITING_CONFIRMATION`);
-        const updatedBooking = await extractBookingFromChat(message, catalogContext, session.history, session.booking);
-        
-        if (updatedBooking && updatedBooking.layanan_dipilih && updatedBooking.layanan_dipilih.length > 0) {
-          updatedBooking.nomor_hp = sanitizePhoneNumber(updatedBooking.nomor_hp, cleanSenderPhone);
-          session.booking = updatedBooking;
+      // Deteksi Skenario Koreksi Parsial Data Reservasi (Nama, Jam, Tanggal, Dokter, Treatment)
+      const isCorrectionAttempt = /(nama\s+(saya|ku)?\s*(bukan|diganti|ganti)|ganti\s+(nama|jam|jadwal|tanggal|dokter|treatment)|bukan|jadinya\s+jam|ubah\s+(jam|nama|tanggal|jadwal)|ganti\s+ke|jam\s+\d+|pindah\s+ke)/i.test(message);
+
+      if (intent === 'BOOKING' || isCorrectionAttempt) {
+        console.log(`👷 [Worker] Mendeteksi perubahan/koreksi data dalam AWAITING_CONFIRMATION: "${message}"`);
+        if (session.booking) {
+          const updatedBooking = await extractBookingFromChat(message, catalogContext, session.history, session.booking);
+          
+          // 1. Tangani koreksi nama parsial (misal: "Nama saya bukan Budi tapi Sarah")
+          const nameCorrectionMatch = message.match(/(?:bukan\s+[A-Za-z]+\s+tapi|nama\s+(?:saya|ku)?\s*(?:bukan\s+[A-Za-z]+\s+tapi|diganti\s+ke|ganti\s+ke|jadi|adalah)?)\s+([A-Za-z\s]+?)(?:\s+(?:kak|min|ya|dong)|[.,!]|$)/i);
+          if (nameCorrectionMatch) {
+            session.booking.nama_pasien = cleanPatientName(nameCorrectionMatch[1]);
+          } else if (updatedBooking.nama_pasien && !updatedBooking.nama_pasien.toLowerCase().includes('bukan') && updatedBooking.nama_pasien.trim() !== '') {
+            session.booking.nama_pasien = cleanPatientName(updatedBooking.nama_pasien);
+          }
+
+          // 2. Tangani koreksi jam slot
+          if (updatedBooking.jam_booking && updatedBooking.jam_booking.trim() !== '') {
+            session.booking.jam_booking = updatedBooking.jam_booking;
+          }
+
+          // 3. Tangani koreksi hari/tanggal
+          if (updatedBooking.tanggal_booking && updatedBooking.tanggal_booking.trim() !== '') {
+            session.booking.tanggal_booking = updatedBooking.tanggal_booking;
+          }
+
+          // 4. Tangani koreksi dokter
+          if (updatedBooking.dokter_pilihan && updatedBooking.dokter_pilihan.trim() !== '' && updatedBooking.dokter_pilihan !== '-') {
+            session.booking.dokter_pilihan = updatedBooking.dokter_pilihan;
+          }
+
+          // 5. Tangani koreksi atau pergantian treatment jika disebutkan
+          if (updatedBooking.layanan_dipilih && updatedBooking.layanan_dipilih.length > 0) {
+            session.booking.layanan_dipilih = updatedBooking.layanan_dipilih;
+            session.booking.total_estimasi = updatedBooking.total_estimasi;
+          }
+
+          session.booking.nomor_hp = sanitizePhoneNumber(updatedBooking.nomor_hp || session.booking.nomor_hp, cleanSenderPhone);
+
           const result = await validateAndProceedBooking(session.booking, cleanSenderPhone, catalog);
           session.step = result.step;
           replyText = result.replyText;
-        } else {
-          replyText = `Maaf Kak, perubahan reservasi belum sesuai dengan katalog perawatan klinik kami. Silakan ketik kembali nama treatment yang diinginkan ya Kak.`;
+
+          await whatsappProvider.sendMessage(sender, replyText);
+          session.history.push({ role: 'assistant', content: replyText });
+          await sessionService.setSession(sender, session);
+          return;
         }
-        
-        await whatsappProvider.sendMessage(sender, replyText);
-        session.history.push({ role: 'assistant', content: replyText });
-        await sessionService.setSession(sender, session);
-        return;
       }
 
       if (intent === 'INQUIRY') {
@@ -487,7 +602,7 @@ export const whatsappWorker = new Worker<ChatJobData>(
   },
   {
     connection: redisConnection,
-    concurrency: 1,
+    concurrency: env.WORKER_CONCURRENCY || 5,
   }
 );
 
