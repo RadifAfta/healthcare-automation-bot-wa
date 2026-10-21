@@ -1,0 +1,50 @@
+================================================================================
+PANDUAN VOICE OVER (VO) TIKTOK - SOFT PROMO BOT WHATSAPP KLINIK ESTETIKA
+Format: Santai, Kasual, Natural, Behind-the-Scenes (POV Developer / Tech Creator)
+Total Durasi Video: 48 Detik
+================================================================================
+
+[00:00 - 00:06] BABAK 1: HOOK KASUAL
+(Teks di layar: "Spill sistem WhatsApp klinik yang bikin admin gak lembur 👀")
+
+Naskah VO Anda:
+"Sering banget nih ditanya: 'Bisa gak sih bikin WhatsApp klinik yang otomatis layani pasien 24 jam tanpa admin harus standby malam-malam?' Nah, ini sistem yang baru aja kita beresin..."
+
+--------------------------------------------------------------------------------
+
+[00:06 - 00:18] BABAK 2: SISTEM 1 - AI BEAUTY CONSULTANT & HARGA
+(Teks di layar: "1. Paham keluhan kulit & kasih rekomendasi treatment + harga resmi ✨")
+
+Naskah VO Anda:
+"Pertama, kalau ada pasien nanya keluhan kulit kayak jerawat atau kusam, AI-nya bakal jawab ramah kayak beauty consultant beneran. Plus, langsung kasih daftar harga treatment resmi tanpa disembunyi-sembunyiin."
+
+--------------------------------------------------------------------------------
+
+[00:18 - 00:30] BABAK 3: SISTEM 2 - BOOKING SANTAI & CEK JADWAL
+(Teks di layar: "2. Booking santai lewat chat, otomatis cek jadwal dokter 📅")
+
+Naskah VO Anda:
+"Kedua, pas mau booking, gak perlu repot isi form Google Form yang kaku. Pasien tinggal ketik santai mau jadwal jam berapa, sistem langsung cek slot dokternya kosong atau gak, terus kartu reservasinya langsung jadi otomatis."
+
+--------------------------------------------------------------------------------
+
+[00:30 - 00:42] BABAK 4: SISTEM 3 - AUTO-SYNC GOOGLE SHEETS (THE MAGIC MOMENT)
+(Teks di layar: "3. The Magic Moment: Begitu konfirmasi, langsung auto-sync ke Google Sheets! ⚡")
+
+Naskah VO Anda:
+"Nah, ini bagian paling serunya. Begitu pasien konfirmasi 'ya sudah sesuai', perhatiin Google Sheets di bawah... langsung ke-sync detik itu juga tanpa admin harus ketik ulang satu huruf pun."
+
+--------------------------------------------------------------------------------
+
+[00:42 - 00:48] BABAK 5: OUTRO SANTAI / SOFT CLOSING
+(Teks di layar: "Menurut kalian klinik kecantikan udah wajib pakai sistem ini belum? 🤔 Drop di kolom komentar ya 👇")
+
+Naskah VO Anda:
+"Menurut kalian, klinik kecantikan zaman sekarang udah wajib punya sistem kayak gini belum? Tulis pendapat kalian di kolom komentar ya, atau DM kalau mau tau cara setup-nya!"
+
+================================================================================
+TIPS REKAMAN:
+- Gunakan nada santai seperti lagi ngobrol sama temen (bukan nada iklan TV).
+- Bicara dengan artikulasi santai tapi jelas.
+- Audio latar di video sudah kami setting di -20dB, jadi suara Anda tinggal di-paste di atasnya tanpa perlu repot balancing musik.
+================================================================================
