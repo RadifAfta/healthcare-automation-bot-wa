@@ -24,6 +24,9 @@ const envSchema = z.object({
   GROQ_MODEL: z.string().default('openai/gpt-oss-120b'),
   // Nomor WA HP Admin / Resepsionis untuk menerima alert handoff & membalas pasien (!balas)
   ADMIN_WA_NUMBER: z.string().default(''),
+  // Worker Concurrency & Sheets In-Memory Caching configuration
+  WORKER_CONCURRENCY: z.coerce.number().min(1).max(20).default(5),
+  SHEETS_CACHE_TTL_SECONDS: z.coerce.number().default(600),
   // Konfigurasi Google Apps Script Web App Endpoint (Metode Tanpa Service Account)
   GOOGLE_SHEETS_WEBAPP_URL: z.string().default(''),
   GOOGLE_SHEETS_SECRET_TOKEN: z.string().default(''),

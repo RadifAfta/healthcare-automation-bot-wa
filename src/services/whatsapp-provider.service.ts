@@ -1,10 +1,19 @@
-import client from '../config/whatsapp';
 import { env } from '../config/env';
 import { MetaWhatsAppProvider } from './whatsapp-cloud.service';
 
 export interface WhatsAppProvider {
   sendMessage(to: string, message: string): Promise<void>;
+  sendMedia?(to: string, mediaType: 'image' | 'audio' | 'document' | 'video', mediaId: string, caption?: string): Promise<void>;
 }
+
+// Lazy-loaded client agar Puppeteer browser tidak diinstansiasi ketika sistem berjalan dalam mode 'cloud_api'
+let webClientInstance: any = null;
+const getWebClient = async () => {
+  if (!webClientInstance) {
+    webClientInstance = (await import('../config/whatsapp')).default;
+  }
+  return webClientInstance;
+};
 
 /**
  * Mengonversi string Unicode escape sequence (seperti \ud83d\ude05) menjadi karakter emoji asli.
@@ -27,6 +36,7 @@ export class WhatsAppWebProvider implements WhatsAppProvider {
   async sendMessage(to: string, message: string): Promise<void> {
     try {
       const decodedMessage = decodeUnicodeEscapes(message);
+      const client = await getWebClient();
       
       // Ambil instance chat untuk memicu status sedang mengetik
       const chat = await client.getChatById(to);
@@ -47,7 +57,8 @@ export class WhatsAppWebProvider implements WhatsAppProvider {
     } catch (error: any) {
       console.warn(`⚠️ [WA Web Provider] Gagal mengirim dengan efek mengetik, mengirim instan ke ${to}:`, error.message || error);
       const decodedMessage = decodeUnicodeEscapes(message);
-      await client.sendMessage(to, decodedMessage);
+      const fallbackClient = await getWebClient();
+      await fallbackClient.sendMessage(to, decodedMessage);
     }
   }
 }

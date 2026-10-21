@@ -91,12 +91,44 @@ if (env.GOOGLE_SERVICE_ACCOUNT_EMAIL && env.GOOGLE_PRIVATE_KEY) {
   }
 }
 
+// ============================================================================
+// IN-MEMORY CACHE FOR GOOGLE SHEETS API (Pencegahan 429 & Akselerasi Latensi)
+// ============================================================================
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
+let catalogCache: CacheEntry<ClinicServiceItem[]> | null = null;
+let doctorSchedulesCache: CacheEntry<DoctorScheduleItem[]> | null = null;
+let existingBookingsCache: CacheEntry<ExistingBookingItem[]> | null = null;
+
+const DEFAULT_CACHE_TTL_MS = (env.SHEETS_CACHE_TTL_SECONDS || 600) * 1000; // Default 10 menit
+const BOOKINGS_CACHE_TTL_MS = 30 * 1000; // 30 detik untuk riwayat reservasi yang dinamis
+
+/**
+ * Helper untuk membersihkan seluruh cache in-memory Google Sheets (misal saat admin trigger !refresh-cache)
+ */
+export const clearSheetsCache = (): void => {
+  catalogCache = null;
+  doctorSchedulesCache = null;
+  existingBookingsCache = null;
+  console.log('🧹 [Sheets Service] Seluruh cache Google Sheets berhasil dibersihkan.');
+};
+
 /**
  * Service untuk mengambil data katalog perawatan Klinik Kecantikan dari Google Sheets.
  * Memprioritaskan koneksi langsung via Service Account API ke GOOGLE_SPREADSHEET_ID,
  * dengan opsi fallback ke Apps Script Web App dan katalog internal.
+ * Dilengkapi In-Memory Cache (TTL 10m) untuk mencegah HTTP 429 Too Many Requests.
  */
-export const getCatalogFromSheet = async (): Promise<ClinicServiceItem[]> => {
+export const getCatalogFromSheet = async (forceRefresh = false): Promise<ClinicServiceItem[]> => {
+  const now = Date.now();
+  if (!forceRefresh && catalogCache && now < catalogCache.expiresAt) {
+    console.log(`⚡ [Sheets Cache Hit] Menggunakan katalog tersimpan di memori cache (${catalogCache.data.length} item).`);
+    return catalogCache.data;
+  }
+
   // METODE 1: GOOGLE SERVICE ACCOUNT API (Langsung & Sinkron Real-Time dengan GOOGLE_SPREADSHEET_ID)
   if (sheetsClient && env.GOOGLE_SPREADSHEET_ID) {
     try {
@@ -120,6 +152,7 @@ export const getCatalogFromSheet = async (): Promise<ClinicServiceItem[]> => {
 
         if (parsedItems.length > 0) {
           console.log(`✅ [Sheets Service] Sukses memuat ${parsedItems.length} layanan perawatan kecantikan dari Google Spreadsheet.`);
+          catalogCache = { data: parsedItems, expiresAt: now + DEFAULT_CACHE_TTL_MS };
           return parsedItems;
         }
       }
@@ -147,13 +180,15 @@ export const getCatalogFromSheet = async (): Promise<ClinicServiceItem[]> => {
         const data: any = await response.json();
         if (data && Array.isArray(data.catalog) && data.catalog.length > 0) {
           console.log(`✅ [Sheets Service] Sukses memuat ${data.catalog.length} layanan perawatan kecantikan dari Apps Script.`);
-          return data.catalog.map((item: any) => ({
+          const parsed = data.catalog.map((item: any) => ({
             nama: String(item.nama || '').trim(),
             harga: parseInt(String(item.harga || '0').replace(/[^0-9]/g, ''), 10),
             durasi: String(item.durasi || '45 menit').trim(),
             dokter: String(item.dokter || 'Tim Dokter Estetika').trim(),
             kategori: String(item.kategori || 'Aesthetic & Skincare').trim(),
           }));
+          catalogCache = { data: parsed, expiresAt: now + DEFAULT_CACHE_TTL_MS };
+          return parsed;
         }
       }
     } catch (error: any) {
@@ -163,6 +198,7 @@ export const getCatalogFromSheet = async (): Promise<ClinicServiceItem[]> => {
 
   // DEFAULT FALLBACK
   console.log('ℹ️ [Sheets Service] Menggunakan katalog default Klinik Kecantikan (fallback).');
+  catalogCache = { data: FALLBACK_CLINIC_CATALOG, expiresAt: now + DEFAULT_CACHE_TTL_MS };
   return FALLBACK_CLINIC_CATALOG;
 };
 
@@ -203,6 +239,7 @@ export const appendBookingToSheet = async (booking: ExtractedBooking): Promise<v
       });
 
       console.log(`✅ [Sheets Service] Data reservasi berhasil ditulis via Service Account API!`);
+      existingBookingsCache = null; // Invalidate cache riwayat booking agar data terbaru segera terbaca
       return;
     } catch (error: any) {
       console.error('❌ [Sheets Service] Gagal menulis data reservasi via Service Account API:', error.message || error);
@@ -237,6 +274,7 @@ export const appendBookingToSheet = async (booking: ExtractedBooking): Promise<v
       }
 
       console.log(`✅ [Sheets Service] Reservasi berhasil ditulis via Apps Script! Respon:`, result);
+      existingBookingsCache = null; // Invalidate cache riwayat booking
       return;
     } catch (error: any) {
       console.error('❌ [Sheets Service] Gagal menulis data reservasi via Apps Script Web App:', error.message || error);
@@ -249,14 +287,37 @@ export const appendBookingToSheet = async (booking: ExtractedBooking): Promise<v
 
 /**
  * Helper untuk mengekstrak hari dari string tanggal (misal: "Sabtu, 26 September 2026" -> "Sabtu")
+ * Dilengkapi parser kalender jika pasien/AI memberikan tanggal tanpa nama hari (misal: "25 Oktober 2026")
  */
 export const extractDayFromDateString = (tanggalStr: string): string => {
+  if (!tanggalStr) return '';
   const days = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
   for (const day of days) {
     if (new RegExp(`\\b${day}\\b`, 'i').test(tanggalStr)) {
       return day;
     }
   }
+
+  // Fallback Kalender: Parse format tanggal numerik (contoh: "25 Oktober 2026") jika nama hari tidak tertulis
+  const months: Record<string, number> = {
+    januari: 0, februari: 1, maret: 2, april: 3, mei: 4, juni: 5,
+    juli: 6, agustus: 7, september: 8, oktober: 9, november: 10, desember: 11,
+  };
+  const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+  const match = tanggalStr.match(/(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})/);
+  if (match) {
+    const dayNum = parseInt(match[1], 10);
+    const monthKey = match[2].toLowerCase();
+    const yearNum = parseInt(match[3], 10);
+    if (monthKey in months) {
+      const parsedDate = new Date(yearNum, months[monthKey], dayNum);
+      if (!isNaN(parsedDate.getTime())) {
+        return daysIndo[parsedDate.getDay()];
+      }
+    }
+  }
+
   return '';
 };
 
@@ -274,8 +335,15 @@ export const parseTimeToMinutes = (timeStr: string): number | null => {
 
 /**
  * Service untuk mengambil jadwal dokter dari Google Sheets (tab 'JadwalDokter')
+ * Dilengkapi In-Memory Cache (TTL 10m)
  */
-export const getDoctorSchedulesFromSheet = async (): Promise<DoctorScheduleItem[]> => {
+export const getDoctorSchedulesFromSheet = async (forceRefresh = false): Promise<DoctorScheduleItem[]> => {
+  const now = Date.now();
+  if (!forceRefresh && doctorSchedulesCache && now < doctorSchedulesCache.expiresAt) {
+    console.log(`⚡ [Sheets Cache Hit] Menggunakan jadwal dokter tersimpan di memori cache (${doctorSchedulesCache.data.length} dokter).`);
+    return doctorSchedulesCache.data;
+  }
+
   // METODE 1: GOOGLE SERVICE ACCOUNT API
   if (sheetsClient && env.GOOGLE_SPREADSHEET_ID) {
     try {
@@ -299,6 +367,7 @@ export const getDoctorSchedulesFromSheet = async (): Promise<DoctorScheduleItem[
 
         if (parsed.length > 0) {
           console.log(`✅ [Sheets Service] Sukses memuat ${parsed.length} jadwal dokter dari Google Spreadsheet.`);
+          doctorSchedulesCache = { data: parsed, expiresAt: now + DEFAULT_CACHE_TTL_MS };
           return parsed;
         }
       }
@@ -324,13 +393,15 @@ export const getDoctorSchedulesFromSheet = async (): Promise<DoctorScheduleItem[
       if (response.ok) {
         const data: any = await response.json();
         if (data && Array.isArray(data.schedules) && data.schedules.length > 0) {
-          return data.schedules.map((s: any) => ({
+          const parsed = data.schedules.map((s: any) => ({
             dokter: String(s.dokter || '').trim(),
             hari: String(s.hari || 'Semua Hari').split(',').map((h: string) => h.trim()),
             jamMulai: String(s.jamMulai || '09:00').trim(),
             jamSelesai: String(s.jamSelesai || '20:00').trim(),
             kuotaPerJam: parseInt(String(s.kuotaPerJam || '1'), 10) || 1,
           }));
+          doctorSchedulesCache = { data: parsed, expiresAt: now + DEFAULT_CACHE_TTL_MS };
+          return parsed;
         }
       }
     } catch (error: any) {
@@ -339,13 +410,20 @@ export const getDoctorSchedulesFromSheet = async (): Promise<DoctorScheduleItem[
   }
 
   console.log('ℹ️ [Sheets Service] Menggunakan jadwal dokter default (fallback).');
+  doctorSchedulesCache = { data: FALLBACK_DOCTOR_SCHEDULES, expiresAt: now + DEFAULT_CACHE_TTL_MS };
   return FALLBACK_DOCTOR_SCHEDULES;
 };
 
 /**
  * Service untuk mengambil daftar seluruh reservasi aktif dari Google Sheets (Sheet1!A2:F)
+ * Dilengkapi In-Memory Cache (TTL 30 detik)
  */
-export const getExistingBookingsFromSheet = async (): Promise<ExistingBookingItem[]> => {
+export const getExistingBookingsFromSheet = async (forceRefresh = false): Promise<ExistingBookingItem[]> => {
+  const now = Date.now();
+  if (!forceRefresh && existingBookingsCache && now < existingBookingsCache.expiresAt) {
+    return existingBookingsCache.data;
+  }
+
   // METODE 1: GOOGLE SERVICE ACCOUNT API
   if (sheetsClient && env.GOOGLE_SPREADSHEET_ID) {
     try {
@@ -356,7 +434,7 @@ export const getExistingBookingsFromSheet = async (): Promise<ExistingBookingIte
 
       const rows = response.data.values;
       if (rows && rows.length > 0) {
-        return rows
+        const parsed = rows
           .map((row: any) => ({
             nama_pasien: row[0]?.trim() || '',
             nomor_hp: row[1]?.trim() || '',
@@ -366,6 +444,8 @@ export const getExistingBookingsFromSheet = async (): Promise<ExistingBookingIte
             dokter_pilihan: row[5]?.trim() || '',
           }))
           .filter((item: ExistingBookingItem) => item.nama_pasien && item.tanggal_booking && item.jam_booking);
+        existingBookingsCache = { data: parsed, expiresAt: now + BOOKINGS_CACHE_TTL_MS };
+        return parsed;
       }
     } catch (error: any) {
       console.warn('⚠️ [Sheets Service] Gagal membaca riwayat reservasi via Service Account:', error.message || error);
@@ -389,6 +469,7 @@ export const getExistingBookingsFromSheet = async (): Promise<ExistingBookingIte
       if (response.ok) {
         const data: any = await response.json();
         if (data && Array.isArray(data.bookings)) {
+          existingBookingsCache = { data: data.bookings, expiresAt: now + BOOKINGS_CACHE_TTL_MS };
           return data.bookings;
         }
       }
